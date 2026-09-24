@@ -1,0 +1,22 @@
+services:
+  db:
+    image: mariadb:11.8
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: greenroom
+      MARIADB_USER: greenroom
+      MARIADB_PASSWORD: change-me-local
+      MARIADB_ROOT_PASSWORD: change-me-root
+    ports:
+      - "3306:3306"
+    volumes:
+      - greenroom_db:/var/lib/mysql
+      - ./database/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+volumes:
+  greenroom_db:
+

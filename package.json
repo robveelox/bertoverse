@@ -1,0 +1,16 @@
+{
+  "name": "bertoverse-social-world",
+  "private": true,
+  "version": "0.10.4",
+  "workspaces": ["apps/*"],
+  "scripts": {
+    "dev": "concurrently -n server,client -c green,magenta \"npm run dev -w @greenroom/server\" \"npm run dev -w @greenroom/client\"",
+    "build": "npm run build -w @greenroom/server && npm run build -w @greenroom/client",
+    "test": "npm test -w @greenroom/server",
+    "typecheck": "npm run typecheck -w @greenroom/server && npm run typecheck -w @greenroom/client"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  },
+  "engines": { "node": ">=24" }
+}
