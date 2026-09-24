@@ -77,6 +77,9 @@ export async function userFromRequest(req: Request): Promise<AuthUser | null> {
 
 export async function createSession(userId: number, req: Request, res: Response) {
   const token = randomBytes(32).toString('hex');
+  // Rotate the account session on every login so an account cannot accumulate
+  // stale parallel sessions after a shared-device login.
+  await pool.execute('DELETE FROM user_sessions WHERE user_id = ?', [userId]);
   await pool.execute(`INSERT INTO user_sessions (user_id, token_hash, expires_at, ip_address, user_agent)
     VALUES (?, ?, DATE_ADD(CURRENT_TIMESTAMP, INTERVAL ? DAY), ?, ?)`,
     [userId, hashToken(token), SESSION_DAYS, req.ip?.slice(0, 45) ?? null, req.get('user-agent')?.slice(0, 255) ?? null]);
@@ -103,6 +106,22 @@ export async function verifyLogin(identity: string, password: string): Promise<n
   const [rows] = await pool.query<any[]>('SELECT id, password_hash FROM users WHERE (username = ? OR email = ?) AND status = \'active\' LIMIT 1', [identity, identity]);
   const row = rows[0];
   return row && await argon2.verify(row.password_hash, password) ? Number(row.id) : null;
+}
+
+export async function verifyPassword(userId: number, password: string): Promise<boolean> {
+  const [rows] = await pool.query<any[]>('SELECT password_hash FROM users WHERE id = ? AND status = \'active\' LIMIT 1', [userId]);
+  return Boolean(rows[0] && await argon2.verify(rows[0].password_hash, password));
+}
+
+export async function updateAccount(userId: number, changes: { email?: string; motto?: string; password?: string }) {
+  const fields: string[] = [];
+  const values: any[] = [];
+  if (changes.email !== undefined) { fields.push('email = ?'); values.push(changes.email); }
+  if (changes.motto !== undefined) { fields.push('motto = ?'); values.push(changes.motto); }
+  if (changes.password) { fields.push('password_hash = ?'); values.push(await argon2.hash(changes.password, { type: argon2.argon2id })); }
+  if (!fields.length) return;
+  values.push(userId);
+  await pool.execute(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`, values);
 }
 
 export async function destroySession(token?: string) {

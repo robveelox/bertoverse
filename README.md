@@ -1,5 +1,17 @@
 # Bertoverse
 
+## Version 0.10.5 foundation hardening and account release
+
+- Adds server-authoritative rolling room-chat rate limits, duplicate detection, automatic escalating mutes and moderation/security audit records
+- Adds rate limits and strict origin checks to account, room and purchase writes, plus login session rotation
+- Adds account Settings for email, password and motto changes with validation and current-password protection
+- Adds a functional account menu with Settings, Help placeholder and Log out
+- Adds room geometry previews with dimensions and blocked/furniture tiles to every Navigator listing
+- Slows walking to a calmer tile-to-tile pace and keeps the same timing on client and server
+- Aligns wardrobe and profile avatar crops to a single crisp frame and removes detached/repeated sprite artwork
+- Reworks Phone surfaces as a black original iPhone-inspired UI and aligns the top-right wallet/online/account HUD heights
+- Removes the inner green chat focus ring while retaining the outer chat dock border
+
 ## Version 0.10.4 stability and interaction release
 
 - Makes Phone, Navigator, Wardrobe, Catalog and Bag panels move consistently with mouse or touch

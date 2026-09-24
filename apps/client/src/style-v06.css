@@ -152,3 +152,40 @@
 @media(max-width:760px) {
   .room-chat-bubbles { --bubble-rise:28vh; }
 }
+
+/* v0.10.5 foundation polish */
+.top-actions { position:relative; align-items:stretch; }
+#wallet, .online-chip, .top-actions #account-button { height:43px; min-height:43px; }
+#account-button { position:relative; }
+.account-menu { position:absolute; top:calc(100% + 8px); right:0; z-index:80; width:164px; display:grid; gap:3px; padding:8px; border:2px solid #755a7e; border-radius:9px; background:linear-gradient(145deg,#302238,#1c1423); box-shadow:4px 5px 0 #09060db8,inset 1px 1px #ffffff10; }
+.account-menu[hidden] { display:none; }
+.account-menu small { padding:3px 7px 5px; color:#b8ee6c; font-size:8px; font-weight:900; letter-spacing:.12em; }
+.account-menu button { width:100%; min-width:0; height:34px; padding:0 9px; border:1px solid transparent; border-radius:5px; background:transparent; color:#dfcfdf; text-align:left; font-size:11px; }
+.account-menu button:hover { border-color:#66895e; color:#d9ff9f; background:#314235; }
+.phone-bezel { border-radius:30px; background:#07080c; border-color:#1d2029; box-shadow:inset 2px 2px #ffffff16,inset -3px -3px #000,8px 9px 0 #09060dcc; }
+.phone-home,.phone-view { border-radius:21px; background:linear-gradient(160deg,#222632,#090a0f 75%); border-color:#292d39; }
+.phone-app-grid button { border-color:#343846; border-radius:13px; background:#151820; box-shadow:inset 1px 1px #ffffff12,inset -2px -2px #050609; }
+.phone-app-grid button:hover { border-color:#b8ee6c; background:#20252f; }
+.phone-home-button { color:#9299a9; }
+.look-preview { width:88px; height:96px; background-size:616px 768px !important; background-position:0 -384px !important; background-repeat:no-repeat !important; overflow:hidden; image-rendering:pixelated; }
+.user-card-avatar { background-size:550px 688px; background-position:0 -287px; }
+.user-card-report { width:calc(100% - 24px); margin:0 12px 12px; padding:6px 9px; border:1px solid #65424f; border-radius:4px; color:#d89aa6; background:#2b1c2b; font-size:9px; font-weight:900; }
+.user-card-report:hover { border-color:#c66b7c; background:#3b2330; }
+.room-card { display:grid; grid-template-columns:1fr auto; gap:9px; align-items:center; }
+.room-card button { grid-column:auto; }
+.room-card-main { min-width:0; display:flex; gap:9px; align-items:center; }
+.room-card-copy { min-width:0; display:grid; gap:3px; }
+.room-card-copy strong,.room-card-copy small,.room-card-copy em { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.room-preview { flex:0 0 86px; width:86px; height:60px; display:grid; grid-template-columns:repeat(var(--preview-cols),1fr); grid-auto-rows:1fr; gap:1px; padding:7px 9px; border:1px solid #755a7e; border-radius:7px; background:linear-gradient(135deg,#5c3656,#261b31); transform:skewY(-7deg); box-shadow:inset 0 1px #ffffff1a; }
+.room-preview-tile { min-width:0; min-height:0; border:1px solid #b67b58; background:#8d5638; opacity:.9; }
+.room-preview-tile.blocked { background:#3c273b; border-color:#a66d88; }
+.settings-window,.help-window { max-height:min(620px,calc(100% - 40px)); overflow:auto; }
+.settings-window form { display:grid; gap:8px; padding:14px; }
+.settings-window label { color:#cdb8d1; font-size:9px; font-weight:900; letter-spacing:.08em; }
+.settings-window label small { color:#9e8aa4; font-weight:400; letter-spacing:0; }
+.settings-window input { width:100%; padding:10px; border:2px solid #493750; border-radius:4px; color:#fff0d1; background:#17101c; font-size:11px; }
+#settings-feedback { min-height:18px; color:#b8ee6c; font-size:10px; }
+.help-copy { padding:16px; color:#cdb8d1; font-size:12px; line-height:1.5; }
+.help-copy p { margin:0 0 12px; }
+#chat:focus-visible { outline:none; box-shadow:none; }
+#chat-form:focus-within { outline:none; border-color:#b8ee6c; box-shadow:0 8px 25px #09060dbb,inset 0 1px #fff1; }

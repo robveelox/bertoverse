@@ -1,7 +1,7 @@
 {
   "name": "bertoverse-social-world",
   "private": true,
-  "version": "0.10.4",
+  "version": "0.10.5",
   "workspaces": ["apps/*"],
   "scripts": {
     "dev": "concurrently -n server,client -c green,magenta \"npm run dev -w @greenroom/server\" \"npm run dev -w @greenroom/client\"",

@@ -6,9 +6,9 @@ import './style-v06.css';
 type AvatarKey = 'avatar-green' | 'avatar-lime';
 type AvatarAppearance = { bodyTone: string; hairStyle: string; hairColor: string; topStyle: string; topColor: string; bottomStyle: string; bottomColor: string; shoesStyle: string; shoesColor: string; accessory: string | null };
 type Player = { id: string; name: string; motto: string; joinedAt: string | null; x: number; y: number; color: string; direction: 'n'|'ne'|'e'|'se'|'s'|'sw'|'w'|'nw'; avatarKey: AvatarKey; appearance: AvatarAppearance; registered: boolean };
-type AuthUser = { publicId: string; username: string; motto: string; joinedAt: string; avatarKey: AvatarKey; appearance: AvatarAppearance };
+type AuthUser = { publicId: string; username: string; email?: string; motto: string; joinedAt: string; avatarKey: AvatarKey; appearance: AvatarAppearance };
 type Room = { id?: string; name?: string; ownerName?: string; createdAt?: string | null; occupancy?: number; width: number; height: number; blocked: string[] };
-type RoomCard = { publicId: string; name: string; description: string; layoutKey: string; maxVisitors: number; occupancy: number; ownerName?: string; createdAt?: string };
+type RoomCard = { publicId: string; name: string; description: string; layoutKey: string; maxVisitors: number; occupancy: number; width: number; height: number; blocked?: string[]; ownerName?: string; createdAt?: string };
 type CatalogItem = { id: number; code: string; name: string; assetKey: string; priceCoins: number };
 type InventoryItem = { catalogId: number; code: string; name: string; assetKey: string; quantity: number };
 type Direction = Player['direction'];
@@ -28,7 +28,7 @@ const directionRowsByAvatar: Record<AvatarKey, Record<Direction, number>> = {
   'avatar-lime': femaleDirectionRows,
 };
 const idleColumn = 0;
-const assetRevision = '0.10.4';
+const assetRevision = '0.10.5';
 
 // One deliberately small palette keeps the room legible while making future
 // room themes a data change instead of another rendering rewrite.
@@ -53,9 +53,11 @@ const SPRITE_FRAME_WIDTH = 220;
 const SPRITE_FRAME_HEIGHT = 240;
 const PROFILE_FRAME_WIDTH = 72;
 const PROFILE_FRAME_HEIGHT = 86;
+const MOVE_MS_CARDINAL = 260;
+const MOVE_MS_DIAGONAL = 365;
 
 function setSingleAvatarFrame(element: HTMLElement, avatarKey: AvatarKey, direction: Direction = 's') {
-  const scale = Math.min(PROFILE_FRAME_WIDTH / SPRITE_FRAME_WIDTH, PROFILE_FRAME_HEIGHT / SPRITE_FRAME_HEIGHT);
+  const scale = PROFILE_FRAME_HEIGHT / SPRITE_FRAME_HEIGHT;
   const frameWidth = SPRITE_FRAME_WIDTH * scale;
   const frameHeight = SPRITE_FRAME_HEIGHT * scale;
   const row = directionRowsByAvatar[avatarKey][direction];
@@ -64,7 +66,7 @@ function setSingleAvatarFrame(element: HTMLElement, avatarKey: AvatarKey, direct
   // complete sheet as the background without this offset shows every frame.
   element.style.backgroundImage = `url('/assets/avatars/${avatarKey}-walk.png?v=${assetRevision}')`;
   element.style.backgroundSize = `${frameWidth * SPRITE_COLUMNS}px ${frameHeight * 8}px`;
-  element.style.backgroundPosition = `${-column * frameWidth}px ${PROFILE_FRAME_HEIGHT - frameHeight - row * frameHeight}px`;
+  element.style.backgroundPosition = `${-column * frameWidth}px ${Math.round(PROFILE_FRAME_HEIGHT - frameHeight - row * frameHeight)}px`;
   element.style.backgroundRepeat = 'no-repeat';
   element.style.imageRendering = 'pixelated';
   element.dataset.avatarFrame = `${avatarKey}:${direction}`;
@@ -84,6 +86,11 @@ const registerForm = document.querySelector<HTMLFormElement>('#register-form')!;
 const guestForm = document.querySelector<HTMLFormElement>('#guest-form')!;
 const authError = document.querySelector<HTMLDivElement>('#auth-error')!;
 const accountButton = document.querySelector<HTMLButtonElement>('#account-button')!;
+const accountMenu = document.querySelector<HTMLElement>('#account-menu')!;
+const settingsModal = document.querySelector<HTMLElement>('#settings-modal')!;
+const settingsForm = document.querySelector<HTMLFormElement>('#settings-form')!;
+const settingsFeedback = document.querySelector<HTMLElement>('#settings-feedback')!;
+const helpModal = document.querySelector<HTMLElement>('#help-modal')!;
 const avatarStudio = document.querySelector<HTMLElement>('#avatar-studio')!;
 const chatForm = document.querySelector<HTMLFormElement>('#chat-form')!;
 const chatInput = document.querySelector<HTMLInputElement>('#chat')!;
@@ -128,6 +135,7 @@ const userCardStatus = document.querySelector<HTMLElement>('#user-card-status')!
 const userCardLook = document.querySelector<HTMLElement>('#user-card-look')!;
 const userCardJoined = document.querySelector<HTMLElement>('#user-card-joined')!;
 const userCardMessage = document.querySelector<HTMLButtonElement>('#user-card-message')!;
+const userCardReport = document.querySelector<HTMLButtonElement>('#user-card-report')!;
 let displayName = 'Guest';
 let currentUser: AuthUser | null = null;
 let currentRoomId = '00000000-0000-4000-8000-000000000001';
@@ -141,6 +149,7 @@ let loungeReady = false;
 let connectionRequested = false;
 let roomsByTab: Record<'public'|'mine'|'recent', RoomCard[]> = { public: [], mine: [], recent: [] };
 let activeRoomTab: 'public'|'mine'|'recent' = 'public';
+let chatMuteTimer: number | undefined;
 
 function connectWhenLoungeReady() {
   if (connectionRequested && loungeReady && !socket.connected) socket.connect();
@@ -157,7 +166,13 @@ function startGame(user: AuthUser | null, guestName = 'Guest') {
   currentUser = user;
   displayName = user?.username ?? guestName;
   accountButton.textContent = user ? user.username.slice(0, 2).toUpperCase() : '⚙';
-  accountButton.title = user ? `Signed in as ${user.username} — tap to sign out` : 'Guest account';
+  accountButton.title = user ? `Signed in as ${user.username}` : 'Guest account';
+  accountMenu.hidden = true;
+  accountMenu.querySelector<HTMLElement>('#account-menu-label')!.textContent = user ? user.username : 'GUEST MODE';
+  const settingsEmail = document.querySelector<HTMLInputElement>('#settings-email');
+  const settingsMotto = document.querySelector<HTMLInputElement>('#settings-motto');
+  if (settingsEmail) settingsEmail.value = user?.email ?? '';
+  if (settingsMotto) settingsMotto.value = user?.motto ?? '';
   avatarStudio.hidden = !user;
   avatarStudio.querySelectorAll<HTMLButtonElement>('[data-avatar]').forEach(button => button.classList.toggle('active', button.dataset.avatar === user?.avatarKey));
   wallet.hidden = !user;
@@ -166,6 +181,18 @@ function startGame(user: AuthUser | null, guestName = 'Guest') {
   connectionRequested = true;
   connectWhenLoungeReady();
 }
+
+function closeAccountMenu() { accountMenu.hidden = true; accountButton.setAttribute('aria-expanded', 'false'); }
+function openSettings() {
+  closeAccountMenu();
+  if (!currentUser) { addMessage('Settings are available after you register.', true); return; }
+  settingsFeedback.textContent = '';
+  settingsModal.hidden = false;
+  document.querySelector<HTMLInputElement>('#settings-email')?.focus();
+}
+function closeSettings() { settingsModal.hidden = true; settingsForm.reset(); if (currentUser) startGame(currentUser); }
+function openHelp() { closeAccountMenu(); helpModal.hidden = false; }
+function closeHelp() { helpModal.hidden = true; }
 
 function renderPeople(players: Player[]) {
   knownPlayers.clear();
@@ -463,6 +490,9 @@ roomToggle.addEventListener('click', () => {
 });
 document.addEventListener('keydown', event => {
   if (event.key !== 'Escape') return;
+  closeAccountMenu();
+  settingsModal.hidden = true;
+  helpModal.hidden = true;
   allPanels.forEach(panel => panel.classList.remove('open'));
   roomDetails.hidden = true;
   roomToggle.setAttribute('aria-expanded', 'false');
@@ -489,6 +519,16 @@ userCardMessage.addEventListener('click', () => {
   if (!phonePanel.classList.contains('open')) showPanel('friends');
   openPhoneApp('messages');
   openDirectMessage(target);
+});
+userCardReport.addEventListener('click', async () => {
+  const player = selectedPlayerId ? knownPlayers.get(selectedPlayerId) : undefined;
+  if (!player || !currentUser) { addMessage('Sign in to report a visitor.', true); return; }
+  const reason = window.prompt('Briefly tell Bertoverse HQ what to review:', 'Inappropriate behaviour');
+  if (!reason) return;
+  try {
+    await api('/api/moderation/report', { method: 'POST', body: JSON.stringify({ roomPublicId: currentRoomId, targetType: 'profile', targetId: player.id, reason }) });
+    addMessage('Report sent to Bertoverse HQ.', true); hideUserCard();
+  } catch (error) { addMessage((error as Error).message, true); }
 });
 people.addEventListener('click', event => {
   const row = (event.target as HTMLElement).closest<HTMLElement>('[data-player-id]');
@@ -523,10 +563,19 @@ async function refreshWallet() {
   } catch (error) { addMessage((error as Error).message, true); }
 }
 
+function renderRoomPreview(room: RoomCard) {
+  const width = Math.max(1, Math.min(12, room.width || 10));
+  const height = Math.max(1, Math.min(10, room.height || 10));
+  const blocked = new Set(room.blocked ?? []);
+  const tiles: string[] = [];
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) tiles.push(`<i class="room-preview-tile${blocked.has(`${x},${y}`) ? ' blocked' : ''}"></i>`);
+  return `<div class="room-preview" style="--preview-cols:${width}" aria-label="${width} by ${height} room preview">${tiles.join('')}</div>`;
+}
+
 function renderRooms() {
   const rooms = roomsByTab[activeRoomTab];
   if (!rooms.length) { roomList.innerHTML = `<p class="empty-state">No rooms here yet.</p>`; return; }
-  roomList.innerHTML = rooms.map(room => `<article class="room-card"><span class="room-icon">⌂</span><div><strong>${escapeHtml(room.name)}</strong><small>${escapeHtml(room.description || 'An unfurnished Greenroom space.')}</small><em>${room.occupancy}/${room.maxVisitors} relaxing${room.ownerName ? ` · by ${escapeHtml(room.ownerName)}` : ''}</em></div><button data-join-room="${room.publicId}" data-room-name="${escapeHtml(room.name)}">JOIN</button></article>`).join('');
+  roomList.innerHTML = rooms.map(room => `<article class="room-card"><div class="room-card-main">${renderRoomPreview(room)}<div class="room-card-copy"><strong>${escapeHtml(room.name)}</strong><small>${escapeHtml(room.description || 'An unfurnished Bertoverse space.')}</small><em>${room.width}×${room.height} · ${room.occupancy}/${room.maxVisitors} relaxing${room.ownerName ? ` · by ${escapeHtml(room.ownerName)}` : ''}</em></div></div><button data-join-room="${room.publicId}" data-room-name="${escapeHtml(room.name)}">JOIN</button></article>`).join('');
 }
 
 async function refreshRooms() {
@@ -601,7 +650,44 @@ registerForm.addEventListener('submit', async event => {
   catch (error) { authError.textContent = (error as Error).message; }
 });
 guestForm.addEventListener('submit', event => { event.preventDefault(); startGame(null, document.querySelector<HTMLInputElement>('#name')!.value); });
-accountButton.addEventListener('click', async () => { if (!currentUser) return; await api('/api/auth/logout', { method: 'POST' }); location.reload(); });
+accountButton.addEventListener('click', event => {
+  event.stopPropagation();
+  const open = accountMenu.hidden;
+  accountMenu.hidden = !open;
+  accountButton.setAttribute('aria-expanded', String(open));
+});
+accountMenu.querySelector('[data-account-action="settings"]')?.addEventListener('click', openSettings);
+accountMenu.querySelector('[data-account-action="help"]')?.addEventListener('click', openHelp);
+accountMenu.querySelector('[data-account-action="logout"]')?.addEventListener('click', async () => {
+  closeAccountMenu();
+  if (currentUser) await api('/api/auth/logout', { method: 'POST' }).catch(() => undefined);
+  socket.disconnect();
+  location.reload();
+});
+document.addEventListener('pointerdown', event => {
+  if (!accountMenu.hidden && !accountMenu.contains(event.target as Node) && event.target !== accountButton) closeAccountMenu();
+});
+document.querySelector('#settings-close')?.addEventListener('click', closeSettings);
+document.querySelector('#settings-cancel')?.addEventListener('click', closeSettings);
+settingsForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  if (!currentUser) return;
+  settingsFeedback.textContent = 'Saving…';
+  try {
+    const result = await api<{ user: AuthUser }>('/api/profile/settings', { method: 'PATCH', body: JSON.stringify({
+      email: document.querySelector<HTMLInputElement>('#settings-email')!.value,
+      motto: document.querySelector<HTMLInputElement>('#settings-motto')!.value,
+      currentPassword: document.querySelector<HTMLInputElement>('#settings-current-password')!.value,
+      newPassword: document.querySelector<HTMLInputElement>('#settings-new-password')!.value || undefined,
+    }) });
+    currentUser = result.user; startGame(currentUser); settingsFeedback.textContent = 'Settings saved.';
+    document.querySelector<HTMLInputElement>('#settings-current-password')!.value = '';
+    document.querySelector<HTMLInputElement>('#settings-new-password')!.value = '';
+    socket.disconnect(); socket.connect();
+  } catch (error) { settingsFeedback.textContent = (error as Error).message; }
+});
+document.querySelector('#help-close')?.addEventListener('click', closeHelp);
+document.querySelector('#help-done')?.addEventListener('click', closeHelp);
 avatarStudio.querySelectorAll<HTMLButtonElement>('[data-avatar]').forEach(button => button.addEventListener('click', async () => {
   if (!currentUser) return;
   try {
@@ -638,6 +724,17 @@ function addRoomChatBubble(playerId: string, name: string, message: string, tone
 
 socket.on('dm:received', ({ fromPlayerId, message }: { fromPlayerId: string; message: string }) => addDirectMessage(fromPlayerId, message, false));
 socket.on('dm:sent', ({ toPlayerId, message }: { toPlayerId: string; message: string }) => addDirectMessage(toPlayerId, message, true));
+socket.on('chat:blocked', ({ reason, until }: { reason: string; until: number }) => {
+  if (chatMuteTimer) window.clearInterval(chatMuteTimer);
+  const update = () => {
+    const remaining = Math.max(0, Math.ceil((until - Date.now()) / 1000));
+    chatInput.disabled = remaining > 0;
+    chatInput.placeholder = remaining > 0 ? `Chat paused · ${remaining}s` : 'Say something mellow…';
+    if (!remaining && chatMuteTimer) { window.clearInterval(chatMuteTimer); chatMuteTimer = undefined; }
+  };
+  update(); chatMuteTimer = window.setInterval(update, 1000);
+  addMessage(`Chat paused: ${reason}`, true);
+});
 
 class Lounge extends Phaser.Scene {
   private room: Room = { width: 10, height: 10, blocked: [] };
@@ -672,7 +769,7 @@ class Lounge extends Phaser.Scene {
       const tile = this.screenToTile(pointer.worldX, pointer.worldY);
       if (tile && !this.room.blocked.includes(`${tile.x},${tile.y}`)) {
         this.drawSelection(tile.x, tile.y);
-        socket.emit('move', tile);
+        socket.emit('move', { ...tile, requestId: `${Date.now()}-${Math.random().toString(36).slice(2)}` });
       }
     });
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
@@ -698,6 +795,8 @@ class Lounge extends Phaser.Scene {
       updateRoomDetails(payload.room, payload.players.length);
       this.redraw();
     });
+    socket.on('move:blocked', ({ reason }: { reason: string }) => addMessage(reason, true));
+    socket.on('room:unavailable', ({ reason }: { reason: string }) => addMessage(reason, true));
     socket.on('player:joined', (player: Player) => { this.playerData.set(player.id, player); renderPeople([...this.playerData.values()]); updateRoomDetails(this.room, this.playerData.size); this.upsertAvatar(player); });
     socket.on('player:path', ({ playerId, path }: { playerId: string; path: { x: number; y: number }[] }) => this.animatePath(playerId, path));
     socket.on('player:stopped', ({ playerId }: { playerId: string }) => {
@@ -869,7 +968,7 @@ class Lounge extends Phaser.Scene {
     // vertex. The atlas baseline is normalized, so this one contact point is
     // shared by idle and every walking frame.
     const groundY = p.y + this.tileH * 0.72;
-    if (animate) this.tweens.add({ targets: avatar, x: p.x, y: groundY, duration: 150, ease: 'Linear' });
+    if (animate) this.tweens.add({ targets: avatar, x: p.x, y: groundY, duration: MOVE_MS_CARDINAL, ease: 'Linear' });
     else avatar.setPosition(p.x, groundY);
   }
 
@@ -897,7 +996,7 @@ class Lounge extends Phaser.Scene {
         targets: avatar,
         x: point.x,
         y: point.y + this.tileH * 0.72,
-        duration: diagonal ? 212 : 150,
+        duration: diagonal ? MOVE_MS_DIAGONAL : MOVE_MS_CARDINAL,
         ease: 'Linear',
         onComplete: () => {
           player.x = target.x;
