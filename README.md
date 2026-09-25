@@ -1,341 +1,179 @@
 # Bertoverse
 
-## Version 0.10.6 security, stability and performance release
-
-- Adds bounded Socket.IO payloads, connection-attempt throttling, strict handshake origins and periodic session revocation checks
-- Serializes login session rotation, prevents concurrent room-join races and chooses safe unblocked spawn tiles
-- Adds server-side room-switch cleanup, movement reservations, invalid-tile rejection and per-account DM throttling
-- Makes chat moderation decisions atomic across tabs, preserves mute history and keeps moderation failures from crashing live chat
-- Reuses batched room-preview queries instead of issuing one pair of database queries per room
-- Adds safe HTTP JSON parsing with timeouts, a JSON error boundary, CSP/security headers, health status codes and reconnect cleanup
-- Hardens the systemd and Nginx deployment profiles and upgrades Vitest to the patched 5.0.1 release
-- Adds regression coverage for malformed cookies, invalid movement coordinates and test discovery isolation
-
-## Version 0.10.5 foundation hardening and account release
-
-- Adds server-authoritative rolling room-chat rate limits, duplicate detection, automatic escalating mutes and moderation/security audit records
-- Adds rate limits and strict origin checks to account, room and purchase writes, plus login session rotation
-- Adds account Settings for email, password and motto changes with validation and current-password protection
-- Adds a functional account menu with Settings, Help placeholder and Log out
-- Adds room geometry previews with dimensions and blocked/furniture tiles to every Navigator listing
-- Slows walking to a calmer tile-to-tile pace and keeps the same timing on client and server
-- Aligns wardrobe and profile avatar crops to a single crisp frame and removes detached/repeated sprite artwork
-- Reworks Phone surfaces as a black original iPhone-inspired UI and aligns the top-right wallet/online/account HUD heights
-- Removes the inner green chat focus ring while retaining the outer chat dock border
-
-## Version 0.10.4 stability and interaction release
-
-- Makes Phone, Navigator, Wardrobe, Catalog and Bag panels move consistently with mouse or touch
-- Fixes panel close controls and removes the inactive Lounge Online/moon controls
-- Renames Friends to Phone and keeps sidebar navigation hover-only
-- Adds a polished profile card with the real avatar, username, motto, visitor type and join date
-- Restricts profile clicks to the avatar body so nearby floor tiles remain walkable
-- Moves chat bubbles into an upper-screen purple/green lane that scrolls fully off-screen
-- Adds a room information toggle and a separate Create Room window with Cancel controls
-- Unifies the wallet and online counter styling in the top-right HUD
-- Dismisses mini profiles with their close button, outside clicks or Escape
-- Crops profile previews to one correctly anchored atlas frame instead of the full sheet
-- Derives wide-room walls and floor edges from the same dimensions, including correct wall panel divisions
-- Uses point-in-diamond tile hit testing so every floor tile, including the top row, remains clickable
-- Formats chat bubbles as `Username: message`, adds subtle opacity and slows the upward scroll
-- Makes the full chat input surface focus the message field
-- Applies diagonal corner collision checks using the room's actual blocked and occupied tiles
-
-## Version 0.10.2 foundation hardening release
-
-- Adds touch-friendly dragging for the Navigator, Phone, Wardrobe, Catalog and Bag panels
-- Persists panel positions and keeps dragged panels inside the viewport after resize
-- Preserves independent multi-panel opening, saved sidebar ordering and all 0.10.0/0.10.1 systems
-- Keeps the stable eight-direction avatar, grounded movement and server-authoritative pathfinding contract unchanged
-
-## Version 0.10.1 room and phone release
-
-- Adds a configurable warm wall/floor palette with a crisp double room perimeter
-- Adds hover name tooltips above avatars without restoring permanent labels
-- Adds a Bertoverse Phone with Messages, Bertoverse HQ, People and an expandable app slot
-- Adds live private messages and the HQ update feed to the phone
-- Makes sidebar buttons draggable/reorderable and lets room, catalog, bag and looks panels stay open together
-
-## Version 0.10.0 social room release
-
-- Adds Habbo-inspired stacked chat bubbles that scroll upward and fade out of the room
-- Archives every accepted room message in `chat_messages` for future moderation/admin tools
-- Removes floating usernames from the room so the scene stays clean
-- Adds clickable avatar and people-list profile cards in the bottom-right UI
-- Includes visitor motto, account status and current look in the profile card
-- Renames the client/server identity to Bertoverse while keeping the existing service/database deployment paths compatible
-
-## Version 0.9.2 avatar style harmonisation
-
-- Applies the male atlas's coarser nearest-neighbour pixel treatment to the female atlas
-- Keeps the exact 56-pose, eight-direction runtime contract and shared grounded cells
-- Does not change movement, pathfinding, room state, login, chat, catalog or wardrobe behaviour
-
-## Version 0.9.1 grounded avatar art pass
-
-- Replaced the live male and female atlases with two validated original 56-pose sheets
-- Each sheet contains eight authored travel directions, one planted idle pose and six walk frames per direction
-- Repacked every pose into the identical 220×240 Phaser cell with a shared bottom baseline
-- Removed generator halo/background pixels and kept nearest-neighbour pixel edges crisp
-- Bumped the browser asset revision so deployed clients cannot reuse the broken cached sheets
-
-## Version 0.9.0 movement and loading foundation
-
-- Delays Socket.IO connection until the Phaser room scene is ready, preventing first-load avatar loss
-- Adds true tile hover highlighting using the same isometric conversion as click-to-move
-- Replaces the simple breadth-first route with weighted A* routing and diagonal corner protection
-- Adds room-tile and placed-furniture collision data to server-side routing
-- Prevents routes from entering tiles occupied by another player and stops safely if a moving player claims the next tile
-
-## Version 0.8.3 natural-ratio avatar atlas rebuild
-
-- Removed artificial fixed-width stretching from avatar frames
-- Preserved each pose's natural aspect ratio while sharing height and baseline
-- Kept detached-component filtering so neighbouring heads cannot enter a frame
-
-## Version 0.8.2 detached-component atlas repair
-
-- Removed neighbouring-row head fragments from every avatar cell
-- Normalised only the connected avatar component before scaling
-- Keeps the male avatar’s size stable across idle and all walk frames
-
-## Version 0.8.1 male direction/render lock
-
-- Locked the male Forest Fit to the canonical eight-vector direction table
-- Kept its walking and idle frames in one fixed display box
-- Female remains present but is not part of this focused validation pass
-
-## Version 0.8.0 two-avatar stability baseline
-
-- Reduced the live avatar contract to one male Forest Fit and one female Lime Fit
-- Removed the extra looks from runtime loading and wardrobe selection
-- Normalized legacy account values to one of the two supported looks
-- This is the stable base for adding further avatars after validation
-
-## Version 0.7.7 final render-layer and direction lookup correction
-
-- Replaced conditional direction selection with an explicit eight-vector map
-- Reduced and centred the floor shadow inside the tile
-- Moved the username label to a stable position above the avatar body
-
-## Version 0.7.6 explicit frame sizing and first-load asset recovery
-
-- Added cache-busted avatar asset URLs for deployed clients
-- Applied explicit identical display dimensions to every avatar frame
-- Added a first-load retry when a snapshot arrives during texture loading
-
-## Version 0.7.5 corrected braided direction contract
-
-- Corrected braided atlas mapping so east/west use the profile rows and diagonals use the appropriate front/back rows
-- Kept the strict shared footprint, baseline, idle and six-frame walk contract
-
-## Version 0.7.4 unified avatar footprint and movement render rebuild
-
-- Repacked all six looks into the same visible 150×220 footprint inside every 220×240 frame
-- Normalized every idle and walking frame to one baseline and centre
-- Rebuilt female and male row selection as explicit runtime direction contracts
-- Retained duplicate-account presence protection and all gameplay functionality
-
-## Version 0.7.3 presence de-duplication and per-gender direction maps
-
-- Prevented reconnects or multiple tabs for one account creating duplicate room avatars
-- Added explicit source-row mapping for the female braided atlas
-- Kept grounded frame baselines and all existing room functionality
-
-## Version 0.7.2 grounded atlas baseline and direction correction
-
-- Normalized every frame's visible foot baseline before packing the atlas
-- Anchored avatar containers to the tile diamond centre so feet and shadow stay inside the floor tile
-- Corrected travel-vector mapping to the authored back, profile, front and diagonal rows
-- Kept the exact eight-row × seven-column atlas contract and all existing functionality
-
-## Version 0.7.0 authored grounded avatar atlases
-
-- Replaced the previous improvised direction mapping with authored reference poses
-- Every atlas now has eight runtime rows, one planted idle plus six walk frames per row
-- Idle frames keep feet flat and together; walking frames keep a shared floor baseline
-- Added explicit male/female row mappings and preserved all existing movement/UI/gameplay functionality
-- Runtime atlas cells are 220×240 and load consistently in Phaser
-
-## Version 0.6.4 grounded directional avatar repair
-
-- Re-anchored every idle and walking frame to one shared cell centre and foot baseline
-- Corrected opposite-facing atlas rows for cardinal and diagonal movement
-- Removed the renderer offset that caused visible feet to float above the floor
-- Preserved rooms, catalog, inventory, chat, pathfinding, avatar switching and all existing UI
-
-## Version 0.6.3 repaired directional avatar atlases
-
-- Rebuilt all six detailed atlases with eight explicit isometric heading rows
-- Added mirrored opposite-facing poses so every cardinal and diagonal direction is distinct
-- Repaired the Sunset Fit PNG so it loads in-room as well as in the wardrobe
-- Kept the existing room, catalog, inventory, movement and UI features intact
-
-## Version 0.6.2 detailed Habbo-era avatar art
-
-- Replaced the crude procedural block silhouettes with richer original detailed pixel art
-- Preserved exact 8-direction, 7-column atlas geometry
-- Preserved grounded idle poses, walking frames, pathfinding and movement timing
-- Three feminine looks: Lime, Plum and Coral
-- Three masculine looks: Forest, Midnight and Sunset
-- Added deterministic atlas repacking tooling so future art cannot break frame alignment
-
-## Version 0.6.1 deterministic six-avatar sprite system
-
-- Replaced malformed generated atlases with deterministic original sprite sheets
-- Added three feminine and three masculine avatar designs
-- Every sheet is exactly 7 columns × 8 rows at 160 × 240 pixels per frame
-- Column 0 is a planted standing pose with flat, together feet
-- Columns 1–6 are grounded walking frames
-- Added all eight facing directions with matching idle and walk animations
-- Removed legacy atlas files from the client asset path
-
-## Version 0.6.0 navigator, catalog and rooms foundation
-
-- Added persistent public rooms, owned rooms and recently visited rooms
-- Added room creation and room-isolated Socket.IO presence, movement and chat
-- Added original Greenroom catalog entries and transactional coin purchases
-- Added persistent furniture bag and wallet balances
-- Added functional Rooms, Catalog and Bag navigation panels
-- Added visual catalog cards, purchase notifications and room join controls
-- Added a new Midnight avatar atlas with eight directional rows
-- Normalized avatar atlases to dedicated idle plus six walking frames
-
-## Version 0.5.6 wardrobe and eight-direction movement
-
-- Added eight-direction server-authoritative pathfinding and facing
-- Added safe diagonal movement that cannot cut through blocked corners
-- Distance-adjusted diagonal timing keeps movement speed consistent
-- Added directional standing poses that preserve the avatar's last facing
-- Rebuilt the two new colourways without contrast-softening colour blending
-- Moved saved avatar selection into a dedicated Looks panel with visual previews
-- Avatar changes now update live for everyone without reconnecting the socket
-
-## Version 0.5.5 grounded avatars and expanded looks
-
-- Removed the perpetual vertical idle tween so avatars no longer float
-- Anchored sprite feet and shadows directly to the tile centre
-- Added original Plum Fit and Coral Fit animated avatar colourways
-- Expanded registration and the in-room avatar studio from two saved looks to four
-- Added migration `003_avatar_lineup.sql` for the expanded persistent avatar keys
-
-## Version 0.5.4 deterministic room grid
-
-- Removed the generated raster floor from the runtime completely
-- Floor tiles, click conversion, selector diamonds and movement now share one exact projection
-- Deterministic responsive 2:1 tile geometry prevents artwork drift at every screen size
-- Rebuilt the empty room with code-native timber tiles, wallpaper, trim and skirting
-- Avatar proportions are recalibrated to the exact logical tile size
-
-## Version 0.5.3 selector and lime-direction fix
-
-- Calibrated the room grid 11 source pixels lower to match the visible floor intersections
-- Added independent verified direction-row maps for each avatar sheet
-- Lime avatar now uses southwest row 0 and southeast row 1
-- Green avatar retains southeast row 0 and southwest row 1
-- Idle frames now resolve through the active sprite sheet's own direction map
-
-## Version 0.5.2 room alignment fix
-
-- Increased avatar render scale by 20 percent
-- Anchored avatar feet and shadows to each scaled tile centre instead of a fixed pixel offset
-- Corrected the room grid origin to the artwork's rear tile intersection
-- Enabled smooth filtering for the high-resolution room while preserving nearest-neighbour avatar sprites
-- Selection diamonds now use the same scaled projection values as click conversion and movement
-
-## Version 0.5.1 room-model correction
-
-- Replaced the furnished illustration with an empty 10×10 private-room shell
-- Room artwork now contains only floor, walls, trim and skirting
-- Calibrated the visible floor grid to the authoritative 10×10 server grid
-- Rebalanced avatar scale against the actual 64×32-style tile proportions
-- Removed invisible placeholder furniture collisions from the empty room
-- Furniture will be stored, rendered and placed as separate objects in Phase 3
-
-## Version 0.5 environment and HUD art pass
-
-- Replaced geometric room primitives with a complete high-detail original isometric lounge
-- Added timber flooring, rainy city windows, furniture, record player, plants, terrariums, cat areas and warm lighting
-- Preserved an invisible server-authoritative movement/collision grid beneath the artwork
-- Responsive room scaling and mobile crop keep avatars readable on small screens
-- Rescaled avatars, nameplates, shadows and selection diamonds to match the environment
-- Reworked the HUD into a tactile pixel-panel style matching the room and characters
-
-## Version 0.4.1 login-screen fix
-
-- Restored native hidden-state behaviour for inactive authentication forms
-- Login, registration and guest tabs now show exactly one form at a time
-
-## Version 0.4 accounts and persistent avatars
-
-- Registration and login with Argon2id password hashing
-- Rate-limited authentication endpoints
-- Hashed 30-day database sessions in secure HTTP-only cookies
-- Authenticated Socket.IO identities; clients cannot choose registered usernames
-- Persistent starter-avatar selection
-- Guest access remains available
-- Account-aware sign-out and starter Avatar Studio controls
-
-## Version 0.3.1 movement fix
-
-- Corrected all four isometric sprite direction mappings
-- Replaced per-tile network animation resets with a continuous validated path event
-- Synchronized server authority and smooth client-side path playback at 150 ms per tile
-- Prevented animation restarting and pausing between every tile
-
-## Version 0.3 animated avatars
-
-- Two original adult fashion-avatar designs
-- Four isometric directions and six walking frames per direction
-- Server direction changes drive the matching client animation
-- Deterministic appearance selection keeps each connected player visually consistent
-
-## Version 0.2 visual overhaul
-
-- Full-screen in-game HUD with room, social, looks and inventory navigation
-- Responsive touch/desktop chat dock and chat history
-- Live room-members panel driven by multiplayer state
-- Richer original layered avatars with improved silhouette and idle animation
-- Cosy apartment presentation with timber floor, rug, sofa, table, plants, lamp, windows and warm lighting
-
-Working-title prototype for an original, browser-based isometric social world. The code and placeholder artwork are original and intentionally avoid Habbo assets, names, protocols, and data formats.
-
-## First milestone
-
-- Responsive desktop/mobile canvas
-- One 10 × 10 isometric room
-- Original small-pixel avatar generated in code
-- Click/tap movement with server-side path validation
-- Multiple players synchronized over Socket.IO
-- Room chat with validation and rate limiting
-- MariaDB schema and Docker development database
-
-## Run it
-
-Requirements: Node.js 24+, npm 11+, and Docker (for MariaDB).
+**Current release: 0.10.6**
+
+Bertoverse is an original browser-based isometric multiplayer social world. Players enter small furnished rooms, move tile by tile, chat, customise their look, browse rooms, and manage a lightweight social interface inspired by classic virtual worlds. The project uses original artwork, original code, and its own data model; it is not a Habbo, Nitro, or Polaris clone.
+
+## What is playable
+
+- Account registration, login, cookie sessions, and logout.
+- An isometric lounge with server-authoritative eight-way movement.
+- A* pathfinding with bounds and diagonal corner-cutting checks.
+- Original Forest Fit and Lime Fit avatar atlases with idle and walk poses for eight directions.
+- Room chat bubbles, persistent chat history, spam protection, temporary mutes, and moderation-ready records.
+- Navigator room listings, room visits, room creation, room layouts, catalog, wallet, inventory, and avatar switching.
+- MariaDB-backed rooms, users, appearances, wallets, furniture, chat, mutes, audit records, sessions, and idempotent purchases.
+
+The stoner identity is expressed through colour, humour, fictional botanical motifs, and a relaxed social tone. It does not implement real-world drug sales or consumption mechanics.
+
+## How it works
+
+```text
+Browser (Vite + Phaser)
+        │ HTTPS / WebSocket
+        ▼
+Nginx reverse proxy (TLS, headers, compression)
+        │ localhost:3105
+        ▼
+Node.js server (Express + Socket.IO)
+        │ parameterised SQL
+        ▼
+MariaDB
+```
+
+The browser renders the room and sends intentions such as “walk to this tile” or “send this message.” The Node server validates paths, cleans chat, authenticates registered users, and broadcasts room state. MariaDB stores accounts, sessions, rooms, catalog data, wallets, and visits. Nginx terminates TLS and proxies both HTTP and WebSocket traffic. `systemd` keeps the server running on the VPS.
+
+## Requirements
+
+- Node.js 24 or newer and npm.
+- MariaDB 10.6 or newer (MariaDB 12 is used in the current VPS environment).
+- Nginx for production TLS and reverse proxying.
+- A modern desktop or mobile browser with WebSocket support.
+
+## Project structure
+
+| Path | Purpose |
+|---|---|
+| `apps/client` | Vite, TypeScript, Phaser client and UI styles |
+| `apps/server` | Express API, Socket.IO gateway, auth, movement, chat, repositories |
+| `database/migrations` | Ordered MariaDB schema migrations (`001` through `009`) |
+| `deploy` | systemd and Nginx templates |
+| `docs` | Product, art, architecture, security, and deployment documentation |
+| `refs`, `tools` | Original art references and atlas-generation helpers |
+
+## Local development
+
+Clone the repository, install dependencies, and create a local environment file:
 
 ```bash
+git clone <repository-url> bertoverse
+cd bertoverse
+npm ci
 cp .env.example .env
-docker compose up -d db
-npm install
+```
+
+Set local values in `.env` (use a dedicated local database, never production credentials):
+
+```dotenv
+HOST=127.0.0.1
+PORT=3105
+CLIENT_ORIGIN=http://localhost:5173
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_NAME=greenroom
+DB_USER=greenroom_app
+DB_PASSWORD=use-a-long-local-password
+NODE_ENV=development
+```
+
+Create the database and apply migrations in filename order:
+
+```bash
+mariadb -u root -p -e "CREATE DATABASE IF NOT EXISTS greenroom CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+for migration in database/migrations/*.sql; do
+  mariadb -u greenroom_app -p -h 127.0.0.1 greenroom < "$migration"
+done
+```
+
+Run checks and the development servers:
+
+```bash
+npm run typecheck
+npm test
+npm run build
 npm run dev
 ```
 
-For local development, set `CLIENT_ORIGIN=http://localhost:5173` and `PORT=3001` in `.env`. For the Habbud VPS deployment, use the supplied production files under `deploy/`.
+If npm blocks native install scripts in a fresh environment, review and approve only the scripts required by the lockfile (`argon2` and `esbuild`), then run `npm rebuild argon2`.
 
-The prototype can still run if MariaDB is temporarily unavailable; guests are held in memory. Persistent registered accounts are intentionally deferred to milestone 2.
+## Production deployment
 
-## Commands
+The established Bertoverse VPS workflow is:
 
 ```bash
-npm run dev        # client + server
-npm run build      # production builds
-npm test           # server game-rule tests
-npm run typecheck  # client + server checks
+ssh habbud-server
+sudo -i
 ```
 
-## Design documents
+The application lives at `/var/www/greenroom`, runs as the unprivileged `greenroom` user, listens on `127.0.0.1:3105`, and is exposed as `https://sandbox.habbud.com`. Follow [docs/V0.10.6_UPGRADE.md](docs/V0.10.6_UPGRADE.md) for the versioned upgrade procedure and [docs/HABBUD_VPS_DEPLOYMENT.md](docs/HABBUD_VPS_DEPLOYMENT.md) for a clean deployment. The short form is:
 
-See [docs/PRODUCT_SPEC.md](docs/PRODUCT_SPEC.md), [docs/ART_BIBLE.md](docs/ART_BIBLE.md), and [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md).
+1. Back up the application and database.
+2. Upload the release ZIP to `/home/administrator/` and extract it into `/var/www/greenroom`.
+3. Preserve the existing `/var/www/greenroom/.env`; do not copy it from an archive.
+4. Apply any migrations that have not already run, in order.
+5. `chown` the tree to `greenroom:www-data`, run `npm ci` and `npm run build` as `greenroom`.
+6. Restart `greenroom.service`, validate `/health`, and inspect the journal.
+7. Merge Nginx template changes into the active Certbot HTTPS vhost; do not overwrite the certificate-managed file.
 
-For `sandbox.habbud.com`, follow [docs/HABBUD_VPS_DEPLOYMENT.md](docs/HABBUD_VPS_DEPLOYMENT.md).
+## Database migrations
+
+Migrations are append-only and must be applied in lexical order:
+
+| Migration | Scope |
+|---|---|
+| `001_initial.sql` | Core users, rooms, tiles, furniture, wallets, appearances |
+| `002_accounts_and_sessions.sql` | Password accounts and sessions |
+| `003_avatar_lineup.sql` | Avatar appearance data |
+| `004_rooms_catalog.sql` | Room and catalog foundations |
+| `005_modular_appearance.sql` | Layered avatar appearance support |
+| `006_chat_moderation.sql` | Chat history, moderation, and audit records |
+| `007_phone_system.sql` | Phone/social app data |
+| `008_account_security.sql` | Account settings and security fields |
+| `009_v0106_purchase_idempotency.sql` | Idempotent purchase keys and duplicate-spend protection |
+
+Never delete a migration or edit one that has already run in production. Add a new numbered migration for schema changes and take a database dump before applying it.
+
+## Security and stability model
+
+- Argon2id password hashing and server-side cookie sessions.
+- Session rotation on login and password changes, with revocation of prior sessions.
+- Origin and request-metadata checks for state-changing HTTP and Socket.IO traffic.
+- JSON-only API errors, strict input validation, parameterised SQL, and no-store responses for private APIs.
+- Separate auth, read, write, purchase, chat, and connection rate limits.
+- Socket payload and connection-attempt caps, idle cleanup, and duplicate-presence protection.
+- Server-authoritative movement, occupancy reservations, chat throttles, mutes, and purchase idempotency.
+- Nginx security headers and a hardened systemd service with no public Node port.
+
+See [docs/SECURITY.md](docs/SECURITY.md) for the threat model and the next security work.
+
+## Operations and troubleshooting
+
+Useful production checks:
+
+```bash
+systemctl status greenroom --no-pager
+journalctl -u greenroom -n 100 --no-pager
+curl -sS https://sandbox.habbud.com/health
+nginx -t
+systemctl reload nginx
+```
+
+If health reports a database error, check `.env` permissions and credentials, then test with `mariadb -u greenroom_app -p -h 127.0.0.1 greenroom`. If the page loads but live movement or chat does not, inspect the browser network panel for a failed WebSocket and confirm the active HTTPS Nginx vhost proxies `/socket.io/` with HTTP/1.1 and upgrade headers. If a release fails, stop the service, restore the application backup and SQL dump, then restart and re-check `/health`.
+
+## Documentation index
+
+- [Changelog](CHANGELOG.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Security](docs/SECURITY.md)
+- [Product specification](docs/PRODUCT_SPEC.md)
+- [Implementation plan](docs/IMPLEMENTATION_PLAN.md)
+- [Art bible](docs/ART_BIBLE.md)
+- [VPS deployment](docs/HABBUD_VPS_DEPLOYMENT.md)
+- [0.10.6 upgrade runbook](docs/V0.10.6_UPGRADE.md)
+- [Historical 0.10.5 upgrade note](docs/V0.10.5_UPGRADE.md)
+- [Historical 0.8.3 upgrade](docs/V0.8.3_UPGRADE.md)
+- [Historical 0.4 upgrade](docs/V0.4_UPGRADE.md)
+
+## Originality and scope
+
+Bertoverse deliberately uses an original name, codebase, art direction, avatar proportions, palette, interface language, room geometry, and database model. Generic ideas such as isometric rooms, tile movement, chat, and wardrobes are not copied expression. Review trademarks, age rating, privacy policy, moderation policy, and asset licences before public launch.

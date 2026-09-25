@@ -1,34 +1,52 @@
-# Implementation plan
+# Bertoverse implementation plan
 
-## Architecture
+This plan tracks the current 0.10.6 foundation and the next work that improves reliability without expanding the product blindly.
 
-- `apps/client`: Vite + TypeScript + Phaser browser client.
-- `apps/server`: Express health endpoint + Socket.IO authoritative room server.
-- `database`: MariaDB migrations. Persistent repositories start in milestone 0.2.
-- Shared protocol types are deliberately small in 0.1; extract a package once a second room or API consumer exists.
+## Architecture status
 
-## Delivery sequence
-
-| Stage | Deliverable | Exit check |
+| Area | Current implementation | Status |
 |---|---|---|
-| 0.1A | Renderer and input | Room renders sharply and tile selection works on mouse/touch |
-| 0.1B | Authoritative movement | Server finds paths and all clients receive identical positions |
-| 0.1C | Presence and chat | Join/leave/chat work in two tabs with rate limits |
-| 0.1D | Persistence seam | MariaDB boots from migrations and health reports connectivity |
-| 0.2 | Accounts | Argon2id passwords, sessions, saved appearance, recovery flow |
-| 0.3 | Rooms and furniture | Navigator, ownership, placement, inventory, collision |
-| 0.4 | Community safety | Roles, mute, report, audit log, word filters and appeal trail |
-| 0.5 | Economy | Transactional purchases, ledger, grants and admin controls |
+| Client | Vite, TypeScript, Phaser, responsive UI windows, code-split production chunks | Complete for current release |
+| API | Express health/auth/account/room/catalog/profile endpoints with JSON error boundaries | Hardened |
+| Realtime | Socket.IO room presence, movement, chat, reconnect and cleanup | Hardened |
+| Movement | Server-authoritative A*, eight directions, occupancy/reservations, corner blocking | Stable baseline |
+| Persistence | MariaDB repositories and append-only migrations 001–009 | Stable baseline |
+| Identity | Argon2id, cookie sessions, rotation, revocation, rate limits | Hardened |
+| Operations | Nginx TLS proxy, systemd sandboxing, health endpoint, backup runbook | Production-ready baseline |
 
-## Server rules
+## Completed in 0.10.6
 
-- Clients request a destination tile; only the server calculates and advances the path.
-- Movement is Manhattan/orthogonal in 0.1 and updates every 220 ms.
-- Chat is trimmed, capped at 160 characters, escaped by Phaser text rendering, and rate-limited.
-- Display names are temporary, 2–16 characters, and reduced to letters, numbers, spaces, `_` and `-`.
-- Currency and owned items will always be changed inside MariaDB transactions.
+- Added account-security fields and purchase idempotency migration.
+- Added strict origin/request metadata checks for state-changing HTTP and Socket.IO traffic.
+- Added input bounds, malformed-cookie handling, JSON-only error responses, and no-store private API responses.
+- Split rate limits by authentication, reads, writes, chat, purchases, and connection attempts.
+- Added socket payload limits, idle cleanup, duplicate-presence prevention, movement reservations, and chat/mute enforcement.
+- Improved reconnect cleanup, session watcher handling, client request timeouts, and production code splitting.
+- Added a server Vitest configuration that isolates tests from workspace-level configuration.
+- Removed known production dependency audit findings and re-ran typecheck, tests, build, and server syntax checks.
 
-## Production checklist (later milestone)
+## Next priorities
 
-HTTPS/WSS, reverse-proxy trust, Redis adapter for horizontal scaling, session store, CSRF protection, Argon2id credentials, migrations runner, backups, metrics, structured logs, content moderation, privacy/retention policy, accessibility testing, load testing, and an age/audience decision.
+### 1. Moderation and observability
 
+Build an authenticated moderator surface over the existing chat, mute, and audit tables. Add structured server events for login failures, rate-limit hits, movement rejects, purchases, and moderation actions. Retain only the minimum data needed for safety and publish a retention policy.
+
+### 2. Room permissions and furniture safety
+
+Add explicit room-owner/member roles, server-side placement permissions, collision validation for furniture footprints, and an audit trail for room edits. Keep all placement and purchase decisions transactional.
+
+### 3. Reconnect and client state quality
+
+Add request identifiers and acknowledgement timeouts to movement, chat, and purchase actions. On reconnect, send a complete room snapshot plus a monotonic revision so stale client state cannot overwrite newer state.
+
+### 4. Accessibility and responsive QA
+
+Keyboard-focus states, reduced-motion support, readable chat contrast, touch targets, and a repeatable desktop/mobile browser matrix should be acceptance criteria before adding more social apps.
+
+### 5. Operations and scale
+
+Add automated migration checks in CI, scheduled encrypted database backups with restore drills, log rotation, and a small load-test scenario for two-client movement/chat. Consider Redis only when a second Node instance is genuinely required; it is not a substitute for correctness work.
+
+## Delivery rule
+
+Every release should ship with a migration note, rollback point, typecheck, tests, production build, dependency audit, health check, and a two-client smoke test. New artwork must pass the [art bible](ART_BIBLE.md), and new server behaviour must preserve the authoritative-state rule.

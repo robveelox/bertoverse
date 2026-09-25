@@ -1,24 +1,54 @@
-# Original art bible — v0.1
+# Bertoverse art bible
 
-## Canvas and projection
+This document is the runtime art contract for the 0.10.6 client. It keeps original Bertoverse artwork consistent across the room, wardrobe, profile card, and future avatar layers.
+
+## Visual identity
+
+Bertoverse is a cosy, slightly mischievous pixel-art social world: deep plum UI, warm timber floors, leafy greens, lime focus states, and soft amber lighting. The stoner identity is communicated with fictional botanical motifs and relaxed humour. Do not use real-world drug products or borrowed game assets as production art.
+
+## Room projection
 
 | Rule | Specification |
 |---|---|
 | Projection | 2:1 isometric diamond |
 | Logical tile | 64 × 32 px at 1× |
 | Elevation step | 16 px |
-| Internal rendering | Integer pixel coordinates; nearest-neighbour scaling |
-| Base viewport | 960 × 540, responsive crop/scale |
-| Supported directions | 8 visual directions; 4-direction movement in 0.1 |
+| Coordinates | Integer tile coordinates; never fractional for gameplay placement |
+| Scaling | Nearest-neighbour for pixel art; no browser smoothing |
+| Depth | Sort by tile depth, then stable entity id |
+| Floor | Tile centre is the avatar foot anchor and shadow centre |
 
-## Avatar silhouette
+Walls and floor should form a readable room silhouette at every supported aspect ratio. Decorative detail must not obscure walkable tile edges or the hover/selection state.
 
-- Native frame: 24 × 38 px.
-- Large rounded head (14 × 13 px), narrow torso, short legs, oversized shoes.
-- The silhouette must remain readable at 1× and must not reuse Habbo proportions.
-- Layer order: back accessory → body → trousers → top → head → hair → face → front accessory.
-- 0.1 uses a code-drawn placeholder: idle bob plus four-direction walk lean.
-- Production animation target: idle 4 frames; walk 6 frames per direction; sit 2; wave 6; laugh 6.
+## Avatar runtime contract
+
+The current release ships two active looks: Forest Fit (male presentation) and Lime Fit (female presentation). They share the same modular body proportions, visible footprint, cell size, baseline, and renderer. Additional looks must be derived from this contract rather than introducing a new renderer.
+
+| Rule | Specification |
+|---|---|
+| Atlas grid | 7 columns × 8 rows |
+| Cell size | 220 × 240 px |
+| Columns | 0 = planted idle; 1–6 = walk frames |
+| Rows | `n`, `ne`, `e`, `se`, `s`, `sw`, `w`, `nw` |
+| Playback | Idle holds column 0; walking loops columns 1–6 |
+| Anchor | Feet together for idle; every frame shares one foot baseline |
+| Shadow | One small tile-centred shadow below the feet, never inside the sprite |
+| Texture filter | Nearest-neighbour; integer display scale where possible |
+
+The server direction is derived from the requested tile vector. The client uses an explicit eight-vector lookup; it must never infer a row from sprite-sheet position or browser rotation. A frame must contain one avatar only, with no neighbouring head, feet, or shadow pixels crossing its cell boundary.
+
+## Layer order
+
+Future modular assets render in this order:
+
+1. Back accessory and rear hair.
+2. Base body and skin shading.
+3. Trousers or skirt layer.
+4. Top layer.
+5. Face and front hair.
+6. Shoes and front accessory.
+
+All layers use the same 220 × 240 cell, foot anchor, and eight-row direction table. Clothing may change colour and silhouette, but not the shared body proportions without a new reviewed art contract.
 
 ## Palette
 
@@ -33,18 +63,8 @@
 | Soft cream | `#fff1cf` |
 | Brick shadow | `#6e4058` |
 
-Use a one-pixel dark outline and one highlight ramp per material. Avoid copying the colour ramps, outlines, facial features, or furniture geometry of existing social worlds.
+Use an original one-pixel outline and a restrained highlight ramp per material. Avoid copying colour ramps, facial features, furniture geometry, or UI iconography from other social worlds.
 
-## World language
+## Asset naming and review
 
-- Rounded planters, beanbags, cassette players, lava lamps, tea trays, terrariums, and fictional glowing herbs.
-- Plant motifs use invented leaf shapes and playful names.
-- UI uses soft plum panels, lime focus states, large touch targets, and chunky original icons.
-- Cannabis references should be age-appropriate for the intended audience and reviewed before public launch.
-
-## Asset naming
-
-`category_item_variant_direction_frame.png`
-
-Example: `avatar_hoodie_plum_sw_03.png`. Keep editable source files separate from exported runtime spritesheets.
-
+Use `category_item_variant_direction_frame.png`, for example `avatar_hoodie_plum_sw_03.png`. Keep editable source files separate from exported atlases. Before committing an atlas, verify: all 56 cells exist, transparent pixels are intentional, feet share one baseline, idle feet are together, each direction visibly faces the travel vector, and the atlas renders identically in the room and wardrobe.
