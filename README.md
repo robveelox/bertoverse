@@ -1,5 +1,16 @@
 # Bertoverse
 
+## Version 0.10.6 security, stability and performance release
+
+- Adds bounded Socket.IO payloads, connection-attempt throttling, strict handshake origins and periodic session revocation checks
+- Serializes login session rotation, prevents concurrent room-join races and chooses safe unblocked spawn tiles
+- Adds server-side room-switch cleanup, movement reservations, invalid-tile rejection and per-account DM throttling
+- Makes chat moderation decisions atomic across tabs, preserves mute history and keeps moderation failures from crashing live chat
+- Reuses batched room-preview queries instead of issuing one pair of database queries per room
+- Adds safe HTTP JSON parsing with timeouts, a JSON error boundary, CSP/security headers, health status codes and reconnect cleanup
+- Hardens the systemd and Nginx deployment profiles and upgrades Vitest to the patched 5.0.1 release
+- Adds regression coverage for malformed cookies, invalid movement coordinates and test discovery isolation
+
 ## Version 0.10.5 foundation hardening and account release
 
 - Adds server-authoritative rolling room-chat rate limits, duplicate detection, automatic escalating mutes and moderation/security audit records

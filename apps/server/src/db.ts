@@ -6,7 +6,12 @@ export const pool = mysql.createPool({
   database: process.env.DB_NAME ?? 'greenroom',
   user: process.env.DB_USER ?? 'greenroom',
   password: process.env.DB_PASSWORD ?? 'change-me-local',
-  connectionLimit: 5,
+  connectionLimit: 10,
+  waitForConnections: true,
+  queueLimit: 100,
+  connectTimeout: 5000,
+  enableKeepAlive: true,
+  keepAliveInitialDelay: 0,
 });
 
 export async function databaseStatus(): Promise<'connected' | 'unavailable'> {

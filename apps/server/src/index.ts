@@ -8,14 +8,16 @@ import { createHash, randomUUID } from 'node:crypto';
 import { Server } from 'socket.io';
 import { databaseStatus } from './db.js';
 import { BLOCKED, cleanMessage, cleanName, Direction, findPath, Player, ROOM_HEIGHT, ROOM_WIDTH, Tile } from './game.js';
-import { createSession, destroySession, parseCookies, registerUser, SESSION_COOKIE, updateAccount, userById, userFromRequest, userFromToken, verifyLogin, verifyPassword } from './auth.js';
+import { createSession, destroySession, parseCookies, registerUser, revokeOtherSessions, SESSION_COOKIE, updateAccount, userById, userFromRequest, userFromToken, verifyLogin, verifyPassword } from './auth.js';
 import { pool } from './db.js';
 
 const port = Number(process.env.PORT ?? 3001);
 const host = process.env.HOST ?? '127.0.0.1';
 const origin = process.env.CLIENT_ORIGIN ?? 'http://localhost:5173';
+if (!/^https?:\/\/[^\s/]+(?::\d+)?$/.test(origin)) throw new Error('CLIENT_ORIGIN must be a single absolute http(s) origin.');
 const app = express();
 app.set('trust proxy', 1);
+app.disable('x-powered-by');
 app.use(cors({ origin, credentials: true }));
 app.use(express.json({ limit: '16kb' }));
 app.use(cookieParser());
@@ -24,17 +26,27 @@ app.use((_req, res, next) => {
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'same-origin');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  const websocketOrigin = origin.replace(/^http/, 'ws');
+  res.setHeader('Content-Security-Policy', `default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ${origin} ${websocketOrigin}; form-action 'self'`);
+  if (origin.startsWith('https://')) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  if (_req.path.startsWith('/api/')) res.setHeader('Cache-Control', 'no-store');
   next();
 });
 app.use((req, res, next) => {
   if (['POST', 'PATCH', 'PUT', 'DELETE'].includes(req.method)) {
     const requestOrigin = req.get('origin');
     if (requestOrigin && requestOrigin !== origin) return res.status(403).json({ error: 'Request origin is not allowed.' });
+    if (req.get('sec-fetch-site') === 'cross-site') return res.status(403).json({ error: 'Cross-site requests are not allowed.' });
+    if (req.path.startsWith('/api/') && !(req.get('content-type') ?? '').toLowerCase().startsWith('application/json')) return res.status(415).json({ error: 'JSON request body required.' });
   }
   next();
 });
-app.get('/health', async (_req, res) => res.json({ ok: true, database: await databaseStatus() }));
+app.get('/health', async (_req, res) => {
+  const database = await databaseStatus();
+  res.status(database === 'connected' ? 200 : 503).json({ ok: database === 'connected', database });
+});
 const authLimit = rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: 'draft-7', legacyHeaders: false });
+const apiReadLimit = rateLimit({ windowMs: 60 * 1000, limit: 120, standardHeaders: 'draft-7', legacyHeaders: false });
 const writeLimit = rateLimit({ windowMs: 60 * 1000, limit: 30, standardHeaders: 'draft-7', legacyHeaders: false });
 const purchaseLimit = rateLimit({ windowMs: 60 * 1000, limit: 12, standardHeaders: 'draft-7', legacyHeaders: false });
 const publicUser = (user: Awaited<ReturnType<typeof userById>>) => user && ({
@@ -48,7 +60,7 @@ const publicUser = (user: Awaited<ReturnType<typeof userById>>) => user && ({
 });
 const DEFAULT_ROOM_ID = '00000000-0000-4000-8000-000000000001';
 
-app.get('/api/auth/session', async (req, res) => res.json({ user: publicUser(await userFromRequest(req)) }));
+app.get('/api/auth/session', apiReadLimit, async (req, res) => res.json({ user: publicUser(await userFromRequest(req)) }));
 app.post('/api/auth/register', authLimit, async (req, res) => {
   const email = String(req.body?.email ?? '').trim().toLowerCase();
   const username = String(req.body?.username ?? '').trim();
@@ -82,7 +94,8 @@ app.patch('/api/profile/avatar', writeLimit, async (req, res) => {
   if (!user) return res.status(401).json({ error: 'Sign in first.' });
   const avatarKey = req.body?.avatarKey;
   if (!['avatar-green', 'avatar-lime'].includes(avatarKey)) return res.status(400).json({ error: 'Unknown avatar.' });
-  await pool.execute('UPDATE avatar_appearances SET avatar_key = ? WHERE user_id = ?', [avatarKey, user.id]);
+  await pool.execute(`INSERT INTO avatar_appearances (user_id, avatar_key) VALUES (?, ?)
+    ON DUPLICATE KEY UPDATE avatar_key = VALUES(avatar_key)`, [user.id, avatarKey]);
   res.json({ user: publicUser(await userById(user.id)) });
 });
 
@@ -90,11 +103,12 @@ app.patch('/api/profile/settings', writeLimit, async (req, res) => {
   const user = await userFromRequest(req);
   if (!user) return res.status(401).json({ error: 'Sign in first.' });
   const email = req.body?.email === undefined ? undefined : String(req.body.email).trim().toLowerCase();
-  const motto = req.body?.motto === undefined ? undefined : String(req.body.motto).trim().slice(0, 120);
+  const rawMotto = req.body?.motto === undefined ? undefined : String(req.body.motto).trim();
+  const motto = rawMotto === undefined ? undefined : rawMotto.slice(0, 120);
   const newPassword = req.body?.newPassword === undefined ? undefined : String(req.body.newPassword);
   const currentPassword = String(req.body?.currentPassword ?? '');
   if (email !== undefined && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Enter a valid email address.' });
-  if (motto !== undefined && motto.length > 120) return res.status(400).json({ error: 'Your motto is too long.' });
+  if (rawMotto !== undefined && rawMotto.length > 120) return res.status(400).json({ error: 'Your motto is too long.' });
   if (newPassword !== undefined && (newPassword.length < 8 || newPassword.length > 128)) return res.status(400).json({ error: 'New passwords must be 8–128 characters.' });
   const emailChanged = email !== undefined && email !== user.email;
   if (newPassword || emailChanged) {
@@ -102,6 +116,7 @@ app.patch('/api/profile/settings', writeLimit, async (req, res) => {
   }
   try {
     await updateAccount(user.id, { email, motto, password: newPassword });
+    if (newPassword) await revokeOtherSessions(user.id, req.cookies?.[SESSION_COOKIE]);
     await pool.execute(`INSERT INTO security_audit_events (user_id, event_type, ip_address, details_json) VALUES (?, 'profile_settings_changed', ?, ?)`
       , [user.id, req.ip?.slice(0, 45) ?? null, JSON.stringify({ email: email !== undefined, motto: motto !== undefined, password: Boolean(newPassword) })]);
     res.json({ user: publicUser(await userById(user.id)) });
@@ -114,30 +129,37 @@ app.patch('/api/profile/settings', writeLimit, async (req, res) => {
 app.post('/api/moderation/report', writeLimit, async (req, res) => {
   const user = await userFromRequest(req);
   if (!user) return res.status(401).json({ error: 'Sign in to report something.' });
-  const roomPublicId = String(req.body?.roomPublicId ?? '').slice(0, 36) || null;
+  const roomCandidate = String(req.body?.roomPublicId ?? '');
+  const roomPublicId = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(roomCandidate) ? roomCandidate : null;
   const eventType = String(req.body?.targetType ?? 'profile') === 'chat' ? 'user_report_chat' : 'user_report_profile';
-  const details = { targetId: String(req.body?.targetId ?? '').slice(0, 80), reason: String(req.body?.reason ?? 'Inappropriate behaviour').slice(0, 240) };
+  const details = { targetId: String(req.body?.targetId ?? '').slice(0, 80), reason: String(req.body?.reason ?? 'Inappropriate behaviour').trim().slice(0, 240) || 'Inappropriate behaviour' };
   await pool.execute(`INSERT INTO moderation_events (user_id, room_public_id, event_type, details_json) VALUES (?, ?, ?, ?)`, [user.id, roomPublicId, eventType, JSON.stringify(details)]);
   res.status(201).json({ reported: true });
 });
 
 async function addRoomPreviews(rooms: any[]) {
-  return Promise.all(rooms.map(async room => {
-    const [tiles] = await pool.query<any[]>(`SELECT x, y FROM room_tiles t JOIN rooms r ON r.id = t.room_id WHERE r.public_id = ? AND t.walkable = FALSE`, [room.publicId]);
-    const [items] = await pool.query<any[]>(`SELECT i.x, i.y, i.rotation, c.footprint_width AS footprintWidth, c.footprint_height AS footprintHeight
-      FROM furniture_items i JOIN rooms r ON r.id = i.room_id JOIN furniture_catalog c ON c.id = i.catalog_id
-      WHERE r.public_id = ? AND i.x IS NOT NULL AND i.y IS NOT NULL`, [room.publicId]);
-    const blocked = new Set<string>(tiles.map(tile => `${Number(tile.x)},${Number(tile.y)}`));
-    items.forEach(item => {
-      const width = Number(item.rotation) % 2 ? Number(item.footprintHeight) : Number(item.footprintWidth);
-      const height = Number(item.rotation) % 2 ? Number(item.footprintWidth) : Number(item.footprintHeight);
-      for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) blocked.add(`${Number(item.x) + x},${Number(item.y) + y}`);
-    });
-    return { ...room, width: Number(room.width ?? ROOM_WIDTH), height: Number(room.height ?? ROOM_HEIGHT), blocked: [...blocked] };
-  }));
+  if (!rooms.length) return [];
+  const ids = [...new Set(rooms.map(room => String(room.publicId)).filter(id => /^[0-9a-f-]{36}$/i.test(id)))];
+  if (!ids.length) return rooms.map(room => ({ ...room, width: Number(room.width ?? ROOM_WIDTH), height: Number(room.height ?? ROOM_HEIGHT), blocked: [] }));
+  const placeholders = ids.map(() => '?').join(',');
+  const [tiles] = await pool.query<any[]>(`SELECT r.public_id AS publicId, t.x, t.y FROM room_tiles t JOIN rooms r ON r.id = t.room_id WHERE r.public_id IN (${placeholders}) AND t.walkable = FALSE`, ids);
+  const [items] = await pool.query<any[]>(`SELECT r.public_id AS publicId, i.x, i.y, i.rotation, c.footprint_width AS footprintWidth, c.footprint_height AS footprintHeight
+    FROM furniture_items i JOIN rooms r ON r.id = i.room_id JOIN furniture_catalog c ON c.id = i.catalog_id
+    WHERE r.public_id IN (${placeholders}) AND i.x IS NOT NULL AND i.y IS NOT NULL`, ids);
+  const blockedByRoom = new Map<string, Set<string>>();
+  ids.forEach(id => blockedByRoom.set(id, new Set()));
+  tiles.forEach(tile => blockedByRoom.get(String(tile.publicId))?.add(`${Number(tile.x)},${Number(tile.y)}`));
+  items.forEach(item => {
+    const blocked = blockedByRoom.get(String(item.publicId));
+    if (!blocked) return;
+    const width = Number(item.rotation) % 2 ? Number(item.footprintHeight) : Number(item.footprintWidth);
+    const height = Number(item.rotation) % 2 ? Number(item.footprintWidth) : Number(item.footprintHeight);
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) blocked.add(`${Number(item.x) + x},${Number(item.y) + y}`);
+  });
+  return rooms.map(room => ({ ...room, width: Number(room.width ?? ROOM_WIDTH), height: Number(room.height ?? ROOM_HEIGHT), blocked: [...(blockedByRoom.get(String(room.publicId)) ?? new Set())] }));
 }
 
-app.get('/api/rooms', async (req, res) => {
+app.get('/api/rooms', apiReadLimit, async (req, res) => {
   const user = await userFromRequest(req);
   const [publicRooms] = await pool.query<any[]>(`SELECT r.public_id AS publicId, r.name, r.description, r.layout_key AS layoutKey,
     r.max_visitors AS maxVisitors, r.width, r.height, r.created_at AS createdAt, u.username AS ownerName
@@ -159,10 +181,15 @@ app.get('/api/rooms', async (req, res) => {
 app.post('/api/rooms', writeLimit, async (req, res) => {
   const user = await userFromRequest(req);
   if (!user) return res.status(401).json({ error: 'Sign in to create a room.' });
-  const name = String(req.body?.name ?? '').trim().slice(0, 60);
-  const description = String(req.body?.description ?? '').trim().slice(0, 240);
+  const rawName = String(req.body?.name ?? '').trim();
+  const rawDescription = String(req.body?.description ?? '').trim();
+  if (rawName.length > 60 || rawDescription.length > 240) return res.status(400).json({ error: 'The room name or description is too long.' });
+  const name = rawName;
+  const description = rawDescription;
   const layoutKey = ['square-8', 'square-10', 'wide-12'].includes(req.body?.layoutKey) ? req.body.layoutKey : 'square-10';
   if (name.length < 3) return res.status(400).json({ error: 'Room names need at least 3 characters.' });
+  const [roomCountRows] = await pool.query<any[]>('SELECT COUNT(*) AS count FROM rooms WHERE owner_user_id = ?', [user.id]);
+  if (Number(roomCountRows[0]?.count ?? 0) >= 50) return res.status(429).json({ error: 'You have reached the room limit.' });
   const dimensions: Record<string, [number, number]> = { 'square-8': [8, 8], 'square-10': [10, 10], 'wide-12': [12, 9] };
   const [width, height] = dimensions[layoutKey];
   const publicId = randomUUID();
@@ -171,27 +198,27 @@ app.post('/api/rooms', writeLimit, async (req, res) => {
   res.status(201).json({ room: { publicId, name, description, layoutKey, maxVisitors: 25, occupancy: 0, width, height, blocked: [] } });
 });
 
-app.get('/api/wallet', async (req, res) => {
+app.get('/api/wallet', apiReadLimit, async (req, res) => {
   const user = await userFromRequest(req);
   if (!user) return res.status(401).json({ error: 'Sign in to view your wallet.' });
   const [rows] = await pool.query<any[]>('SELECT coins, gems FROM wallets WHERE user_id = ? LIMIT 1', [user.id]);
   res.json({ wallet: rows[0] ?? { coins: 0, gems: 0 } });
 });
 
-app.get('/api/catalog', async (_req, res) => {
+app.get('/api/catalog', apiReadLimit, async (_req, res) => {
   const [items] = await pool.query<any[]>(`SELECT id, code, name, asset_key AS assetKey, footprint_width AS footprintWidth,
     footprint_height AS footprintHeight, price_coins AS priceCoins FROM furniture_catalog WHERE enabled = TRUE ORDER BY id`);
   res.json({ items });
 });
 
-app.get('/api/hq/updates', async (_req, res) => {
+app.get('/api/hq/updates', apiReadLimit, async (_req, res) => {
   const [updates] = await pool.query<any[]>(`SELECT id, slug, title, body, tone, pinned,
       published_at AS publishedAt FROM hq_updates
       ORDER BY pinned DESC, published_at DESC LIMIT 30`);
   res.json({ updates });
 });
 
-app.get('/api/inventory', async (req, res) => {
+app.get('/api/inventory', apiReadLimit, async (req, res) => {
   const user = await userFromRequest(req);
   if (!user) return res.status(401).json({ error: 'Sign in to view your bag.' });
   const [items] = await pool.query<any[]>(`SELECT c.id AS catalogId, c.code, c.name, c.asset_key AS assetKey, COUNT(*) AS quantity
@@ -205,9 +232,20 @@ app.post('/api/catalog/:id/purchase', purchaseLimit, async (req, res) => {
   if (!user) return res.status(401).json({ error: 'Sign in to purchase furniture.' });
   const catalogId = Number(req.params.id);
   if (!Number.isInteger(catalogId) || catalogId < 1) return res.status(400).json({ error: 'Unknown catalog item.' });
+  const idempotencyKey = (req.get('idempotency-key') ?? '').trim();
+  if (idempotencyKey && !/^[A-Za-z0-9_-]{8,64}$/.test(idempotencyKey)) return res.status(400).json({ error: 'Invalid purchase request key.' });
+  const purchaseKey = idempotencyKey || randomUUID();
+  const hasClientIdempotencyKey = Boolean(idempotencyKey);
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
+    const [previousRows] = await connection.query<any[]>(`SELECT amount, created_at AS createdAt
+      FROM currency_transactions WHERE user_id = ? AND idempotency_key = ? AND reason_code = 'catalog_purchase' LIMIT 1`, [user.id, purchaseKey]);
+    if (previousRows[0]) {
+      const [walletRows] = await connection.query<any[]>('SELECT coins, gems FROM wallets WHERE user_id = ? LIMIT 1', [user.id]);
+      await connection.commit();
+      return res.status(200).json({ purchased: { id: catalogId, name: 'Furniture purchase' }, wallet: { coins: Number(walletRows[0]?.coins ?? 0), gems: Number(walletRows[0]?.gems ?? 0) }, idempotent: true });
+    }
     const [catalogRows] = await connection.query<any[]>('SELECT id, name, price_coins AS priceCoins FROM furniture_catalog WHERE id = ? AND enabled = TRUE FOR UPDATE', [catalogId]);
     const item = catalogRows[0];
     const [walletRows] = await connection.query<any[]>('SELECT coins, gems FROM wallets WHERE user_id = ? FOR UPDATE', [user.id]);
@@ -216,29 +254,58 @@ app.post('/api/catalog/:id/purchase', purchaseLimit, async (req, res) => {
     if (!wallet || Number(wallet.coins) < Number(item.priceCoins)) { await connection.rollback(); return res.status(409).json({ error: 'You do not have enough coins.' }); }
     await connection.execute('UPDATE wallets SET coins = coins - ? WHERE user_id = ?', [item.priceCoins, user.id]);
     await connection.execute('INSERT INTO furniture_items (catalog_id, owner_user_id) VALUES (?, ?)', [item.id, user.id]);
-    await connection.execute(`INSERT INTO currency_transactions (user_id, currency, amount, reason_code, reference_id)
-      VALUES (?, 'coins', ?, 'catalog_purchase', ?)`, [user.id, -Number(item.priceCoins), randomUUID()]);
+    await connection.execute(`INSERT INTO currency_transactions (user_id, currency, amount, reason_code, reference_id, idempotency_key)
+      VALUES (?, 'coins', ?, 'catalog_purchase', ?, ?)`, [user.id, -Number(item.priceCoins), randomUUID(), purchaseKey]);
     await connection.commit();
     res.status(201).json({ purchased: { id: item.id, name: item.name }, wallet: { coins: Number(wallet.coins) - Number(item.priceCoins), gems: Number(wallet.gems) } });
-  } catch (error) {
-    await connection.rollback(); console.error(error); res.status(500).json({ error: 'Purchase failed.' });
+  } catch (error: any) {
+    await connection.rollback();
+    if (error?.code === 'ER_DUP_ENTRY' && hasClientIdempotencyKey) {
+      const [walletRows] = await pool.query<any[]>('SELECT coins, gems FROM wallets WHERE user_id = ? LIMIT 1', [user.id]);
+      return res.status(200).json({ purchased: { id: catalogId, name: 'Furniture purchase' }, wallet: { coins: Number(walletRows[0]?.coins ?? 0), gems: Number(walletRows[0]?.gems ?? 0) }, idempotent: true });
+    }
+    console.error(error); res.status(500).json({ error: 'Purchase failed.' });
   } finally { connection.release(); }
+  });
+
+app.use((error: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (res.headersSent) return next(error);
+  console.error('Unhandled HTTP error', error);
+  res.status(500).json({ error: 'Internal server error.' });
 });
 
 const server = createServer(app);
-const io = new Server(server, { cors: { origin, credentials: true } });
+const io = new Server(server, { cors: { origin, credentials: true }, maxHttpBufferSize: 64 * 1024, pingTimeout: 20_000, pingInterval: 25_000, connectTimeout: 10_000 });
 const players = new Map<string, Player>();
 const roomSizes = new Map<string, { width: number; height: number }>();
 const roomBlocked = new Map<string, Set<string>>();
 const movers = new Map<string, NodeJS.Timeout>();
 const pathReservations = new Map<string, { roomId: string; tiles: Set<string> }>();
 const chatActivity = new Map<string, { timestamps: number[]; lastHash: string; lastAt: number; strikes: number }>();
-const lastDirectMessage = new Map<string, number>();
+const directMessageActivity = new Map<string, number[]>();
+const socketSessionWatchers = new Map<string, NodeJS.Timeout>();
+const socketAttempts = new Map<string, number[]>();
+const socketActionActivity = new Map<string, Map<string, number[]>>();
 const colors = ['#b9ef66', '#f6bd60', '#e984b6', '#77d9d1', '#a895ff'];
 const MOVE_MS_CARDINAL = 260;
 const MOVE_MS_DIAGONAL = 365;
+const socketAttemptCleanup = setInterval(() => {
+  const cutoff = Date.now() - 60_000;
+  for (const [ip, attempts] of socketAttempts) {
+    const recent = attempts.filter(timestamp => timestamp > cutoff);
+    if (recent.length) socketAttempts.set(ip, recent); else socketAttempts.delete(ip);
+  }
+}, 300_000);
+socketAttemptCleanup.unref();
 
 function releasePathReservation(socketId: string) { pathReservations.delete(socketId); }
+function allowSocketAction(socketId: string, action: string, limit: number, windowMs: number) {
+  const actions = socketActionActivity.get(socketId) ?? new Map<string, number[]>();
+  const now = Date.now();
+  const timestamps = (actions.get(action) ?? []).filter(timestamp => now - timestamp < windowMs);
+  if (timestamps.length >= limit) { actions.set(action, timestamps); socketActionActivity.set(socketId, actions); return false; }
+  timestamps.push(now); actions.set(action, timestamps); socketActionActivity.set(socketId, actions); return true;
+}
 
 async function loadRoomCollision(publicId: string) {
   const blocked = new Set(BLOCKED);
@@ -258,10 +325,31 @@ async function loadRoomCollision(publicId: string) {
   return blocked;
 }
 
+function safeRoomId(value: unknown, fallback = DEFAULT_ROOM_ID) {
+  const candidate = String(value ?? '').slice(0, 64);
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(candidate) ? candidate : fallback;
+}
+
+function chooseSpawn(room: { width: number; height: number }, blocked: ReadonlySet<string>, occupied: ReadonlySet<string>) {
+  for (let y = 0; y < room.height; y++) for (let x = 0; x < room.width; x++) {
+    const key = `${x},${y}`;
+    if (!blocked.has(key) && !occupied.has(key)) return { x, y };
+  }
+  return { x: 0, y: 0 };
+}
+
 io.use(async (socket, next) => {
   try {
+    const ip = socket.handshake.address || 'unknown';
+    const now = Date.now();
+    const attempts = (socketAttempts.get(ip) ?? []).filter(timestamp => now - timestamp < 60_000);
+    if (attempts.length >= 30) return next(new Error('Too many connection attempts. Please try again shortly.'));
+    attempts.push(now); socketAttempts.set(ip, attempts);
+    const requestOrigin = socket.handshake.headers.origin;
+    if (requestOrigin && requestOrigin !== origin) return next(new Error('Request origin is not allowed.'));
     const token = parseCookies(socket.handshake.headers.cookie)[SESSION_COOKIE];
     socket.data.authUser = await userFromToken(token);
+    socket.data.sessionToken = token;
     next();
   } catch { socket.data.authUser = null; next(); }
 });
@@ -280,8 +368,18 @@ function direction(from: Tile, to: Tile): Direction {
 }
 
 io.on('connection', (socket) => {
-  socket.on('join', async (payload: { name?: unknown; roomId?: unknown } = {}) => {
-    if (players.has(socket.id)) return;
+  const sessionToken = socket.data.sessionToken as string | undefined;
+  if (sessionToken) {
+    const watcher = setInterval(async () => {
+      try {
+        if (!await userFromToken(sessionToken)) { socket.emit('session:expired'); socket.disconnect(true); }
+      } catch { /* Keep a transient database outage from mass-disconnecting users. */ }
+    }, 60_000);
+    socketSessionWatchers.set(socket.id, watcher);
+  }
+  const handleJoin = async (payload: { name?: unknown; roomId?: unknown } = {}) => {
+    if (players.has(socket.id) || socket.data.joining) return;
+    socket.data.joining = true;
     const index = players.size;
     const authUser = socket.data.authUser as Awaited<ReturnType<typeof userFromToken>>;
     // A reconnect or a second tab can otherwise leave two live render entries
@@ -299,7 +397,7 @@ io.on('connection', (socket) => {
         }
       }
     }
-    const requestedRoom = String(payload.roomId ?? DEFAULT_ROOM_ID);
+    const requestedRoom = safeRoomId(payload.roomId);
     const [roomRows] = await pool.query<any[]>(`SELECT r.public_id AS publicId, r.name, r.width, r.height, r.max_visitors AS maxVisitors, r.created_at AS createdAt,
       u.username AS ownerName FROM rooms r LEFT JOIN users u ON u.id = r.owner_user_id
       WHERE r.public_id = ? LIMIT 1`, [requestedRoom]);
@@ -307,17 +405,21 @@ io.on('connection', (socket) => {
     const currentOccupancy = [...players.values()].filter(other => other.roomId === room.publicId).length;
     if (currentOccupancy >= Number(room.max_visitors ?? 40)) {
       socket.emit('room:unavailable', { reason: 'That room is currently full.' });
+      socket.data.joining = false;
       return;
     }
-    roomSizes.set(room.publicId, { width: Number(room.width), height: Number(room.height) });
+    const dimensions = { width: Math.max(1, Math.min(64, Number(room.width ?? ROOM_WIDTH))), height: Math.max(1, Math.min(64, Number(room.height ?? ROOM_HEIGHT))) };
+    roomSizes.set(room.publicId, dimensions);
     const blocked = await loadRoomCollision(room.publicId);
+    const roomOccupants = new Set([...players.values()].filter(other => other.roomId === room.publicId).map(other => `${other.x},${other.y}`));
+    const spawn = chooseSpawn(dimensions, blocked, roomOccupants);
     const player: Player = {
       id: socket.id,
       name: authUser?.username ?? cleanName(payload.name),
       motto: authUser?.motto ?? 'Just drifting through Bertoverse.',
       joinedAt: authUser?.joinedAt ?? null,
-      x: index % 3,
-      y: 1 + Math.floor(index / 3),
+      x: spawn.x,
+      y: spawn.y,
       direction: 'se',
       color: colors[index % colors.length],
       avatarKey: authUser?.avatarKey === 'avatar-lime' ? 'avatar-lime' : 'avatar-green',
@@ -327,53 +429,88 @@ io.on('connection', (socket) => {
     };
     players.set(socket.id, player);
     socket.join(player.roomId);
-    if (authUser && roomRows[0]) await pool.execute(`INSERT INTO room_visits (user_id, room_id)
-      SELECT ?, id FROM rooms WHERE public_id = ? ON DUPLICATE KEY UPDATE last_visited_at = CURRENT_TIMESTAMP`, [authUser.id, player.roomId]);
+    if (authUser && roomRows[0]) {
+      try {
+        await pool.execute(`INSERT INTO room_visits (user_id, room_id)
+          SELECT ?, id FROM rooms WHERE public_id = ? ON DUPLICATE KEY UPDATE last_visited_at = CURRENT_TIMESTAMP`, [authUser.id, player.roomId]);
+      } catch (error) { console.error('Unable to record room visit', error); }
+    }
     socket.emit('snapshot', {
       selfId: socket.id,
       players: [...players.values()].filter(other => other.roomId === player.roomId),
-      room: { id: player.roomId, name: room.name ?? 'The Sunken Lounge', ownerName: room.ownerName ?? 'Bertoverse HQ', createdAt: room.createdAt ?? null, occupancy: [...players.values()].filter(other => other.roomId === player.roomId).length, width: room.width, height: room.height, blocked: [...blocked] },
+      room: { id: player.roomId, name: room.name ?? 'The Sunken Lounge', ownerName: room.ownerName ?? 'Bertoverse HQ', createdAt: room.createdAt ?? null, occupancy: [...players.values()].filter(other => other.roomId === player.roomId).length, width: dimensions.width, height: dimensions.height, blocked: [...blocked] },
     });
     socket.to(player.roomId).emit('player:joined', player);
     io.to(player.roomId).emit('system', `${player.name} drifted in.`);
+    socket.data.joining = false;
+  };
+  socket.on('join', payload => {
+    void handleJoin(payload).catch(error => {
+      socket.data.joining = false;
+      console.error('Unable to join room', error);
+      socket.emit('room:unavailable', { reason: 'The room is temporarily unavailable.' });
+    });
   });
 
-  socket.on('room:join', async (roomId: unknown) => {
+  const handleRoomJoin = async (roomId: unknown) => {
     const player = players.get(socket.id);
-    if (!player) return;
+    if (!player || socket.data.switching) return;
+    socket.data.switching = true;
     const [rows] = await pool.query<any[]>(`SELECT r.id, r.public_id AS publicId, r.name, r.width, r.height, r.max_visitors AS maxVisitors, r.created_at AS createdAt,
       u.username AS ownerName FROM rooms r LEFT JOIN users u ON u.id = r.owner_user_id
-      WHERE r.public_id = ? AND r.access_mode = 'public' LIMIT 1`, [String(roomId)]);
+      WHERE r.public_id = ? AND r.access_mode = 'public' LIMIT 1`, [safeRoomId(roomId, '')]);
     const room = rows[0];
-    if (!room || room.publicId === player.roomId) return;
+    if (!room || room.publicId === player.roomId) { socket.data.switching = false; return; }
     const currentOccupancy = [...players.values()].filter(other => other.roomId === room.publicId).length;
-    if (currentOccupancy >= Number(room.max_visitors ?? 25)) { socket.emit('room:unavailable', { reason: 'That room is currently full.' }); return; }
+    if (currentOccupancy >= Number(room.max_visitors ?? 25)) { socket.emit('room:unavailable', { reason: 'That room is currently full.' }); socket.data.switching = false; return; }
     const previousRoom = player.roomId;
+    const dimensions = { width: Math.max(1, Math.min(64, Number(room.width))), height: Math.max(1, Math.min(64, Number(room.height))) };
+    const blocked = await loadRoomCollision(room.publicId);
+    const spawn = chooseSpawn(dimensions, blocked, new Set([...players.values()].filter(other => other.roomId === room.publicId && other.id !== player.id).map(other => `${other.x},${other.y}`)));
+    const existingMover = movers.get(socket.id);
+    if (existingMover) clearTimeout(existingMover);
+    movers.delete(socket.id);
+    releasePathReservation(socket.id);
     socket.leave(previousRoom);
     socket.to(previousRoom).emit('player:left', player.id);
     io.to(previousRoom).emit('system', `${player.name} wandered into another room.`);
-    player.roomId = room.publicId; player.x = 1; player.y = 1; player.direction = 'se';
-    roomSizes.set(room.publicId, { width: Number(room.width), height: Number(room.height) });
-    const blocked = await loadRoomCollision(room.publicId);
+    if (![...players.values()].some(other => other.id !== player.id && other.roomId === previousRoom)) { roomSizes.delete(previousRoom); roomBlocked.delete(previousRoom); }
+    player.roomId = room.publicId; player.direction = 'se';
+    roomSizes.set(room.publicId, dimensions);
+    player.x = spawn.x; player.y = spawn.y;
     socket.join(player.roomId);
     const authUser = socket.data.authUser as Awaited<ReturnType<typeof userFromToken>>;
-    if (authUser) await pool.execute(`INSERT INTO room_visits (user_id, room_id) VALUES (?, ?)
-      ON DUPLICATE KEY UPDATE last_visited_at = CURRENT_TIMESTAMP`, [authUser.id, room.id]);
+    if (authUser) {
+      try {
+        await pool.execute(`INSERT INTO room_visits (user_id, room_id) VALUES (?, ?)
+          ON DUPLICATE KEY UPDATE last_visited_at = CURRENT_TIMESTAMP`, [authUser.id, room.id]);
+      } catch (error) { console.error('Unable to record room visit', error); }
+    }
     socket.emit('snapshot', {
       selfId: socket.id,
       players: [...players.values()].filter(other => other.roomId === player.roomId),
-      room: { id: player.roomId, name: room.name, ownerName: room.ownerName ?? 'Bertoverse HQ', createdAt: room.createdAt, occupancy: [...players.values()].filter(other => other.roomId === player.roomId).length, width: room.width, height: room.height, blocked: [...blocked] },
+      room: { id: player.roomId, name: room.name, ownerName: room.ownerName ?? 'Bertoverse HQ', createdAt: room.createdAt, occupancy: [...players.values()].filter(other => other.roomId === player.roomId).length, width: dimensions.width, height: dimensions.height, blocked: [...blocked] },
     });
     socket.to(player.roomId).emit('player:joined', player);
     io.to(player.roomId).emit('system', `${player.name} drifted in.`);
+    socket.data.switching = false;
+  };
+  socket.on('room:join', roomId => {
+    void handleRoomJoin(roomId).catch(error => {
+      socket.data.switching = false;
+      console.error('Unable to switch room', error);
+      socket.emit('room:unavailable', { reason: 'That room could not be opened.' });
+    });
   });
 
   socket.on('move', (raw: Tile & { requestId?: string }) => {
     const player = players.get(socket.id);
     if (!player || !raw) return;
-    const requestId = String(raw.requestId ?? randomUUID());
+    if (!allowSocketAction(socket.id, 'move', 30, 1_000)) { socket.emit('move:blocked', { requestId: String(raw.requestId ?? ''), reason: 'Movement requests are arriving too quickly.' }); return; }
+    const requestId = String(raw.requestId ?? randomUUID()).slice(0, 64);
     const target = raw;
     const goal = { x: Number(target.x), y: Number(target.y) };
+    if (!Number.isSafeInteger(goal.x) || !Number.isSafeInteger(goal.y)) { socket.emit('move:blocked', { requestId, reason: 'That tile is not valid.' }); return; }
     const roomPlayers = [...players.values()].filter(other => other.roomId === player.roomId && other.id !== player.id);
     const occupied = new Set(roomPlayers.map(other => `${other.x},${other.y}`));
     const dimensions = roomSizes.get(player.roomId) ?? { width: ROOM_WIDTH, height: ROOM_HEIGHT };
@@ -429,22 +566,27 @@ io.on('connection', (socket) => {
 
   socket.on('avatar:change', (avatarKey: Player['avatarKey']) => {
     const player = players.get(socket.id);
-    if (!player || !['avatar-green', 'avatar-lime'].includes(avatarKey)) return;
+    if (!player || !['avatar-green', 'avatar-lime'].includes(avatarKey) || !allowSocketAction(socket.id, 'avatar', 5, 10_000)) return;
     player.avatarKey = avatarKey;
     io.to(player.roomId).emit('player:avatar', { playerId: player.id, avatarKey });
   });
 
   socket.on('dm:send', (raw: unknown) => {
     const player = players.get(socket.id);
-    const targetId = String((raw as { playerId?: unknown })?.playerId ?? '');
+    const targetId = String((raw as { playerId?: unknown })?.playerId ?? '').slice(0, 64);
     const message = cleanMessage((raw as { message?: unknown })?.message);
     const now = Date.now();
-    if (!player || !targetId || targetId === player.id || !message || now - (lastDirectMessage.get(socket.id) ?? 0) < 500) return;
+    const senderAuth = socket.data.authUser as Awaited<ReturnType<typeof userFromToken>>;
+    const activityKey = senderAuth ? `u:${senderAuth.id}` : `s:${socket.id}`;
+    const timestamps = (directMessageActivity.get(activityKey) ?? []).filter(timestamp => now - timestamp < 10_000);
+    if (!player || !targetId || targetId === player.id || !message || timestamps.length >= 12 || (timestamps.length && now - timestamps.at(-1)! < 500)) {
+      socket.emit('dm:blocked', { reason: 'Private messages are rate limited. Please slow down.' });
+      return;
+    }
     const target = players.get(targetId);
     if (!target || target.roomId !== player.roomId) return;
-    lastDirectMessage.set(socket.id, now);
+    directMessageActivity.set(activityKey, [...timestamps, now]);
     const targetSocket = io.sockets.sockets.get(target.id);
-    const senderAuth = socket.data.authUser as Awaited<ReturnType<typeof userFromToken>>;
     const recipientAuth = targetSocket?.data.authUser as Awaited<ReturnType<typeof userFromToken>> | null | undefined;
     void (async () => {
       let id: number | null = null;
@@ -475,30 +617,41 @@ io.on('connection', (socket) => {
       const activity = chatActivity.get(activityKey) ?? { timestamps: [], lastHash: '', lastAt: 0, strikes: 0 };
       const recent = activity.timestamps.filter(timestamp => now - timestamp < 10_000);
       const hash = createHash('sha256').update(message.toLowerCase()).digest('hex');
-      const activeMute = authUser ? (await pool.query<any[]>(`SELECT reason, UNIX_TIMESTAMP(expires_at) * 1000 AS expiresAt FROM account_mutes WHERE user_id = ? AND expires_at > CURRENT_TIMESTAMP ORDER BY expires_at DESC LIMIT 1`, [authUser.id]))[0][0] : null;
       const duplicate = activity.lastHash === hash && now - activity.lastAt < 8_000;
       const tooFast = recent.length >= 5 || now - activity.lastAt < 650;
+      // Update the in-memory account bucket before awaiting the database so
+      // multiple tabs cannot race through the same moderation decision.
+      activity.timestamps = [...recent, now];
+      activity.lastHash = hash;
+      activity.lastAt = now;
+      chatActivity.set(activityKey, activity);
+      let activeMute: any = null;
+      if (authUser) {
+        try {
+          activeMute = (await pool.query<any[]>(`SELECT reason, UNIX_TIMESTAMP(expires_at) * 1000 AS expiresAt FROM account_mutes WHERE user_id = ? AND expires_at > CURRENT_TIMESTAMP ORDER BY expires_at DESC LIMIT 1`, [authUser.id]))[0][0] ?? null;
+        } catch (error) {
+          console.error('Unable to check chat mute', error);
+        }
+      }
       if (activeMute || duplicate || tooFast) {
         activity.strikes = Math.min(8, activity.strikes + 1);
-        activity.timestamps = recent;
-        activity.lastHash = hash;
-        activity.lastAt = now;
         chatActivity.set(activityKey, activity);
         const durationMs = activeMute ? Math.max(1_000, Number(activeMute.expiresAt) - now) : Math.min(120_000, 15_000 * (2 ** Math.min(activity.strikes - 1, 3)));
         const reason = activeMute?.reason ?? (duplicate ? 'Repeated messages are temporarily blocked.' : 'Slow down — room chat has a short rate limit.');
         if (authUser && !activeMute) {
           const expiresAt = new Date(now + durationMs);
-          await pool.execute(`INSERT INTO account_mutes (user_id, room_public_id, reason, expires_at) VALUES (?, ?, ?, ?)`, [authUser.id, player.roomId, reason, expiresAt]);
+          try {
+            await pool.execute(`INSERT INTO account_mutes (user_id, room_public_id, reason, expires_at) VALUES (?, ?, ?, ?)`, [authUser.id, player.roomId, reason, expiresAt]);
+          } catch (error) { console.error('Unable to archive automatic mute', error); }
         }
         if (authUser) {
-          await pool.execute(`INSERT INTO moderation_events (user_id, room_public_id, event_type, message_hash, details_json) VALUES (?, ?, ?, ?, ?)`, [authUser.id, player.roomId, activeMute ? 'chat_blocked_while_muted' : 'automatic_chat_mute', hash, JSON.stringify({ duplicate, tooFast, strikes: activity.strikes })]);
+          try {
+            await pool.execute(`INSERT INTO moderation_events (user_id, room_public_id, event_type, message_hash, details_json) VALUES (?, ?, ?, ?, ?)`, [authUser.id, player.roomId, activeMute ? 'chat_blocked_while_muted' : 'automatic_chat_mute', hash, JSON.stringify({ duplicate, tooFast, strikes: activity.strikes })]);
+          } catch (error) { console.error('Unable to archive moderation event', error); }
         }
         socket.emit('chat:blocked', { reason, until: now + durationMs });
         return;
       }
-      activity.timestamps = [...recent, now];
-      activity.lastHash = hash;
-      activity.lastAt = now;
       chatActivity.set(activityKey, activity);
       let chatId: number | null = null;
       try {
@@ -522,6 +675,9 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
+    const watcher = socketSessionWatchers.get(socket.id);
+    if (watcher) clearInterval(watcher);
+    socketSessionWatchers.delete(socket.id);
     const player = players.get(socket.id);
     const timer = movers.get(socket.id);
     if (timer) clearInterval(timer);
@@ -529,12 +685,14 @@ io.on('connection', (socket) => {
     releasePathReservation(socket.id);
     chatActivity.delete(`s:${socket.id}`);
     const authUser = socket.data.authUser as Awaited<ReturnType<typeof userFromToken>>;
-    if (authUser) chatActivity.delete(`u:${authUser.id}`);
-    lastDirectMessage.delete(socket.id);
+    if (authUser && ![...io.sockets.sockets.values()].some(other => other.id !== socket.id && other.data.authUser?.id === authUser.id)) chatActivity.delete(`u:${authUser.id}`);
+    directMessageActivity.delete(`s:${socket.id}`);
+    if (authUser && ![...io.sockets.sockets.values()].some(other => other.id !== socket.id && other.data.authUser?.id === authUser.id)) directMessageActivity.delete(`u:${authUser.id}`);
+    socketActionActivity.delete(socket.id);
     players.delete(socket.id);
     if (player) {
       io.to(player.roomId).emit('player:left', socket.id);
-      if (![...players.values()].some(other => other.roomId === player.roomId)) roomSizes.delete(player.roomId);
+      if (![...players.values()].some(other => other.roomId === player.roomId)) { roomSizes.delete(player.roomId); roomBlocked.delete(player.roomId); }
       io.to(player.roomId).emit('system', `${player.name} wandered off.`);
     }
   });

@@ -156,10 +156,20 @@ function connectWhenLoungeReady() {
 }
 
 async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const response = await fetch(path, { ...options, credentials: 'include', headers: { 'Content-Type': 'application/json', ...options.headers } });
-  const data = response.status === 204 ? {} : await response.json();
-  if (!response.ok) throw new Error(data.error ?? 'Something went wrong.');
-  return data;
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 15_000);
+  try {
+    const response = await fetch(path, { ...options, credentials: 'include', signal: options.signal ?? controller.signal, headers: { Accept: 'application/json', 'Content-Type': 'application/json', ...options.headers } });
+    const text = response.status === 204 ? '' : await response.text();
+    let data: { error?: string } & T;
+    try { data = text ? JSON.parse(text) as { error?: string } & T : {} as { error?: string } & T; }
+    catch { throw new Error(response.ok ? 'The server returned an invalid response.' : `Request failed (${response.status}).`); }
+    if (!response.ok) throw new Error(data.error ?? `Request failed (${response.status}).`);
+    return data;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw new Error('The request timed out.');
+    throw error;
+  } finally { window.clearTimeout(timeout); }
 }
 
 function startGame(user: AuthUser | null, guestName = 'Guest') {
@@ -347,11 +357,11 @@ const railButtons = [...document.querySelectorAll<HTMLButtonElement>('.rail [dat
 const panelsByName: Record<string, HTMLElement> = { friends: phonePanel, looks: looksPanel, rooms: roomsPanel, catalog: catalogPanel, bag: bagPanel };
 const railOrderKey = 'bertoverse.rail-order';
 const panelPositionKey = 'bertoverse.panel-positions';
-const savedRailOrder = (() => { try { return JSON.parse(localStorage.getItem(railOrderKey) ?? '[]') as string[]; } catch { return []; } })();
+const savedRailOrder = (() => { try { const value = JSON.parse(localStorage.getItem(railOrderKey) ?? '[]'); return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string').slice(0, 8) : []; } catch { return []; } })();
 const savedPanelPositions = (() => {
   try {
     const value = JSON.parse(localStorage.getItem(panelPositionKey) ?? '{}') as Record<string, { left?: unknown; top?: unknown }>;
-    return Object.fromEntries(Object.entries(value).flatMap(([name, position]) => {
+    return Object.fromEntries(Object.entries(value && typeof value === 'object' ? value : {}).flatMap(([name, position]) => {
       const left = Number(position?.left); const top = Number(position?.top);
       return Number.isFinite(left) && Number.isFinite(top) ? [[name, { left, top }]] : [];
     }));
@@ -629,7 +639,7 @@ roomList.addEventListener('click', event => {
 catalogList.addEventListener('click', async event => {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-buy-item]'); if (!button) return;
   button.disabled = true;
-  try { const result = await api<{ purchased: { name: string }; wallet: { coins: number; gems: number } }>(`/api/catalog/${button.dataset.buyItem}/purchase`, { method: 'POST' }); coinBalance.textContent = String(result.wallet.coins); addMessage(`${result.purchased.name} was added to your bag.`, true); }
+  try { const key = typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`; const result = await api<{ purchased: { name: string }; wallet: { coins: number; gems: number } }>(`/api/catalog/${button.dataset.buyItem}/purchase`, { method: 'POST', headers: { 'Idempotency-Key': key } }); coinBalance.textContent = String(result.wallet.coins); addMessage(`${result.purchased.name} was added to your bag.`, true); }
   catch (error) { addMessage((error as Error).message, true); }
   finally { button.disabled = false; }
 });
@@ -724,6 +734,7 @@ function addRoomChatBubble(playerId: string, name: string, message: string, tone
 
 socket.on('dm:received', ({ fromPlayerId, message }: { fromPlayerId: string; message: string }) => addDirectMessage(fromPlayerId, message, false));
 socket.on('dm:sent', ({ toPlayerId, message }: { toPlayerId: string; message: string }) => addDirectMessage(toPlayerId, message, true));
+socket.on('dm:blocked', ({ reason }: { reason: string }) => addMessage(reason, true));
 socket.on('chat:blocked', ({ reason, until }: { reason: string; until: number }) => {
   if (chatMuteTimer) window.clearInterval(chatMuteTimer);
   const update = () => {
@@ -794,6 +805,14 @@ class Lounge extends Phaser.Scene {
       renderPeople([...this.playerData.values()]);
       updateRoomDetails(payload.room, payload.players.length);
       this.redraw();
+    });
+    socket.on('disconnect', () => {
+      this.playerData.clear();
+      this.avatars.forEach(avatar => avatar.destroy());
+      this.avatars.clear();
+      knownPlayers.clear();
+      renderPeople([]);
+      onlineCount.textContent = '0';
     });
     socket.on('move:blocked', ({ reason }: { reason: string }) => addMessage(reason, true));
     socket.on('room:unavailable', ({ reason }: { reason: string }) => addMessage(reason, true));
@@ -1094,4 +1113,5 @@ new Phaser.Game({ type: Phaser.AUTO, parent: 'game', backgroundColor: '#211929',
 socket.on('connect', () => { status?.setAttribute('data-state', 'online'); socket.emit('join', { name: displayName, roomId: currentRoomId }); });
 socket.on('disconnect', () => { status?.setAttribute('data-state', 'reconnecting'); });
 socket.on('connect_error', () => { status?.setAttribute('data-state', 'offline'); });
+socket.on('session:expired', () => { currentUser = null; if (!dialog.open) dialog.showModal(); addMessage('Your session expired. Please sign in again.', true); });
 socket.on('system', (message: string) => addMessage(message, true));

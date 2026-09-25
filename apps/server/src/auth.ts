@@ -45,10 +45,15 @@ const appearanceColumns = `
 const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
 
 export function parseCookies(header = ''): Record<string, string> {
-  return Object.fromEntries(header.split(';').map(item => item.trim()).filter(Boolean).map(item => {
+  const cookies: Record<string, string> = {};
+  for (const item of header.split(';').map(value => value.trim()).filter(Boolean)) {
     const index = item.indexOf('=');
-    return [decodeURIComponent(item.slice(0, index)), decodeURIComponent(item.slice(index + 1))];
-  }));
+    if (index < 1) continue;
+    try {
+      cookies[decodeURIComponent(item.slice(0, index))] = decodeURIComponent(item.slice(index + 1));
+    } catch { /* Ignore malformed attacker-controlled cookie segments. */ }
+  }
+  return cookies;
 }
 
 export async function userFromToken(token?: string): Promise<AuthUser | null> {
@@ -77,12 +82,22 @@ export async function userFromRequest(req: Request): Promise<AuthUser | null> {
 
 export async function createSession(userId: number, req: Request, res: Response) {
   const token = randomBytes(32).toString('hex');
-  // Rotate the account session on every login so an account cannot accumulate
-  // stale parallel sessions after a shared-device login.
-  await pool.execute('DELETE FROM user_sessions WHERE user_id = ?', [userId]);
-  await pool.execute(`INSERT INTO user_sessions (user_id, token_hash, expires_at, ip_address, user_agent)
-    VALUES (?, ?, DATE_ADD(CURRENT_TIMESTAMP, INTERVAL ? DAY), ?, ?)`,
-    [userId, hashToken(token), SESSION_DAYS, req.ip?.slice(0, 45) ?? null, req.get('user-agent')?.slice(0, 255) ?? null]);
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    // Rotate the account session on every login so an account cannot accumulate
+    // stale parallel sessions after a shared-device login. Lock the user row so
+    // two simultaneous logins cannot both leave an active token behind.
+    await connection.query('SELECT id FROM users WHERE id = ? FOR UPDATE', [userId]);
+    await connection.execute('DELETE FROM user_sessions WHERE user_id = ?', [userId]);
+    await connection.execute(`INSERT INTO user_sessions (user_id, token_hash, expires_at, ip_address, user_agent)
+      VALUES (?, ?, DATE_ADD(CURRENT_TIMESTAMP, INTERVAL ? DAY), ?, ?)`,
+      [userId, hashToken(token), SESSION_DAYS, req.ip?.slice(0, 45) ?? null, req.get('user-agent')?.slice(0, 255) ?? null]);
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally { connection.release(); }
   res.cookie(SESSION_COOKIE, token, { httpOnly: true, secure: (process.env.CLIENT_ORIGIN ?? '').startsWith('https://'), sameSite: 'lax', maxAge: SESSION_DAYS * 86400000, path: '/' });
 }
 
@@ -126,4 +141,9 @@ export async function updateAccount(userId: number, changes: { email?: string; m
 
 export async function destroySession(token?: string) {
   if (token) await pool.execute('DELETE FROM user_sessions WHERE token_hash = ?', [hashToken(token)]);
+}
+
+export async function revokeOtherSessions(userId: number, currentToken?: string) {
+  if (!currentToken) return;
+  await pool.execute('DELETE FROM user_sessions WHERE user_id = ? AND token_hash <> ?', [userId, hashToken(currentToken)]);
 }

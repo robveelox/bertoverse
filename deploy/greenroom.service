@@ -9,13 +9,22 @@ User=greenroom
 Group=www-data
 WorkingDirectory=/var/www/greenroom
 EnvironmentFile=/var/www/greenroom/.env
+Environment=NODE_ENV=production
 ExecStart=/usr/bin/node /var/www/greenroom/apps/server/dist/index.js
 Restart=on-failure
-RestartSec=5
+RestartSec=3
 NoNewPrivileges=true
 PrivateTmp=true
+PrivateDevices=true
 ProtectSystem=strict
 ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+UMask=0027
+LimitNOFILE=65536
+TimeoutStopSec=15
 ReadWritePaths=/var/www/greenroom
 
 [Install]

@@ -36,4 +36,10 @@ describe('authoritative game rules', () => {
     expect(cleanName('<b>Rob</b>')).toBe('bRobb');
     expect(cleanMessage('hello\u0000 world')).toBe('hello world');
   });
+
+  it('rejects non-integer and oversized movement coordinates', () => {
+    expect(isWalkable({ x: 1.5, y: 2 })).toBe(false);
+    expect(isWalkable({ x: 999, y: 999 })).toBe(false);
+    expect(findPath({ x: 0, y: 0 }, { x: Number.NaN, y: 2 })).toEqual([]);
+  });
 });

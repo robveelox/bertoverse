@@ -9,4 +9,8 @@ describe('authentication helpers', () => {
   it('handles an empty cookie header', () => {
     expect(parseCookies()).toEqual({});
   });
+
+  it('ignores malformed attacker-controlled cookie segments', () => {
+    expect(parseCookies('greenroom_session=%E0%A4%A; safe=value')).toEqual({ safe: 'value' });
+  });
 });
